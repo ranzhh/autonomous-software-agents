@@ -18,4 +18,9 @@ export {
   type GameMap,
   type Pos,
 } from "./game-map.js";
+export {
+  createParcelBeliefs,
+  type ParcelBeliefs,
+  type ParcelEntry,
+} from "./parcel-beliefs.js";
 export { clockEventToMs, parseSettings, type Settings } from "./settings.js";
