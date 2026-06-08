@@ -6,6 +6,10 @@
  * script is wired and runnable. Planned usage: `npm run token -- <name> [team]`.
  */
 
-console.log(
-  "[mint-token] phase 0 placeholder — game-token minting lands in task 0.4 (DjsRestClient).",
+import { createLogger } from "../util/index.js";
+
+const log = createLogger({ scope: "mint-token" });
+
+log.info(
+  "phase 0 placeholder — game-token minting lands in task 0.4 (DjsRestClient).",
 );
