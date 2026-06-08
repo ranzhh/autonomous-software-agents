@@ -78,7 +78,7 @@ if (cfg.tokenBdi === undefined) {
       try {
         await plan.execute(intention);
         // Only reset + log when this plan is still the active one (not already
-        // replaced by a preempting intention). Reset lets the next sensing event
+        // replaced by a preempting intention). Reset lets the next deliberation
         // pick a fresh intention rather than being blocked by hysteresis on the
         // now-completed one (e.g. explore→explore after Wander reaches its target).
         if (activePlan === plan) {
@@ -95,7 +95,14 @@ if (cfg.tokenBdi === undefined) {
         }
         revision.reset();
       } finally {
-        if (activePlan === plan) activePlan = undefined;
+        if (activePlan === plan) {
+          activePlan = undefined;
+          // Re-deliberate immediately rather than waiting for the next sensing
+          // event. After a delivery the server often sends no sensing event
+          // (agent is stationary, nothing visible changes), so without this the
+          // agent idles indefinitely at the delivery tile instead of exploring.
+          deliberateAndAct();
+        }
       }
     }
 
