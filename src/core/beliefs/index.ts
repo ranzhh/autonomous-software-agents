@@ -13,4 +13,4 @@
  *   - belief-set.ts     — wires listeners, revises, emits 'updated'.
  */
 
-export {};
+export { clockEventToMs, parseSettings, type Settings } from "./settings.js";
