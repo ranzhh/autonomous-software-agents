@@ -1,17 +1,19 @@
 /**
  * bdi/plans — the reactive plan library. `BasePlan` defines the contract
- * (`isApplicableTo()` / `execute()` / `stop()`); concrete plans (GoTo, GoPickUp,
- * Deliver, Wander) achieve intentions by emitting SDK actions, re-pathing on
- * `emitMove === false` and aborting with `PlanFailedError`. The `PlanLibrary`
- * selects an applicable plan; this is also the reactive fallback for PDDL.
+ * (`isApplicableTo` / `execute` / `stop`); concrete plans achieve intentions by
+ * emitting SDK actions, re-pathing on `emitMove === false` and aborting with a
+ * `PlanFailedError`. `PlanLibrary` selects an applicable plan; this is also the
+ * reactive fallback for PDDL. Plans run against a narrow `PlanContext` (self
+ * position, map, blockers, emitters, wait) so they stay unit-testable.
  *
- * Intended files (added in Phases 2–3):
- *   - base-plan.ts    — abstract BasePlan contract.
- *   - go-to.ts        — navigate to a tile (re-path, failure-aware).
- *   - go-pick-up.ts   — go to a parcel and pick up.
- *   - deliver.ts      — go to a delivery tile and put down.
- *   - wander.ts       — explore when nothing better is known.
- *   - plan-library.ts — typed registry + applicable-plan selection.
+ * Phase 2 ships `GoTo` (navigation); GoPickUp/Deliver/Wander arrive in Phase 3.
  */
 
-export {};
+export { BasePlan } from "./base-plan.js";
+export { GoTo, type GoToOptions } from "./go-to.js";
+export {
+  createPlanContext,
+  type PlanContext,
+  type PlanContextOptions,
+} from "./plan-context.js";
+export { PlanLibrary } from "./plan-library.js";

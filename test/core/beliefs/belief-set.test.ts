@@ -6,6 +6,8 @@ import type {
   IOAgent,
   IOConfig,
   IOSensing,
+  PickedParcel,
+  Position,
 } from "../../../src/core/sdk/index.js";
 
 // ── Mock GameConnection ───────────────────────────────────────────────────────
@@ -42,6 +44,17 @@ class MockConnection implements GameConnection {
 
   fireSensing(s: IOSensing): void {
     for (const l of this.sensingListeners) l(s);
+  }
+
+  // Action emitters — unused by belief-revision tests; stubbed to satisfy the interface.
+  async emitMove(): Promise<Position | false> {
+    return false;
+  }
+  async emitPickup(): Promise<readonly PickedParcel[]> {
+    return [];
+  }
+  async emitPutdown(): Promise<readonly PickedParcel[]> {
+    return [];
   }
 
   ready(): Promise<void> {

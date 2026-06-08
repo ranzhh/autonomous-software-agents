@@ -5,9 +5,11 @@
  * applicable one, drops it when it becomes invalid, and switches to a better one
  * only past a hysteresis margin (so the agent doesn't thrash between targets).
  *
- * Intended files (added in Phase 3):
- *   - intention.ts          — Intention (goal + selected plan + lifecycle).
- *   - intention-revision.ts — deliberate/commit/drop/switch loop with hysteresis.
+ * Files:
+ *   - intention.ts          — Intention discriminated union (seeded in Phase 2
+ *                             with `goto`; extended in Phase 3).
+ *   - intention-revision.ts — deliberate/commit/drop/switch loop with hysteresis
+ *                             (added in Phase 3).
  */
 
-export {};
+export type { GoToIntention, Intention } from "./intention.js";
