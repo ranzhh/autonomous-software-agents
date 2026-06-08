@@ -14,6 +14,11 @@
  */
 
 export {
+  type AgentBeliefs,
+  type AgentEntry,
+  createAgentBeliefs,
+} from "./agent-beliefs.js";
+export {
   buildGameMap,
   type GameMap,
   type Pos,
