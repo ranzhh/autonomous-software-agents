@@ -17,7 +17,11 @@
 
 import type { BeliefSet, GameMap, Pos } from "../../core/beliefs/index.js";
 import { bfsToNearest } from "../../core/pathfinding/index.js";
-import { deliverValue, pickupValue } from "../reward/value.js";
+import {
+  deliverValue,
+  enRouteTourValue,
+  pickupValue,
+} from "../reward/value.js";
 import type {
   DeliverIntention,
   ExploreIntention,
@@ -88,6 +92,15 @@ function nearestDelivery(map: GameMap, from: Pos): Pos | undefined {
  *  2. Pickup (one candidate per free parcel, filtered to positive value).
  *  3. Explore (always included as the fallback with value 0).
  *
+ * Pickup values are comparable to the deliver value so the two compete directly:
+ *  - empty-handed → `pickupValue` (full me→parcel→delivery journey);
+ *  - already carrying → `enRouteTourValue` (total reward delivered if I divert via
+ *    the parcel and then deliver the whole stack). A divert candidate only outranks
+ *    "deliver now" when the new parcel's reward beats the extra decay the detour
+ *    inflicts on the carried stack — so opportunistic multi-parcel pickup falls out
+ *    of the same ranking, no extra intention kind needed. (Zero-detour freebies the
+ *    agent simply walks over are grabbed by `GoTo` itself.)
+ *
  * The list is sorted descending by value. `explore` will always be last.
  */
 export function deliberate(beliefs: BeliefSet, now: number): Candidate[] {
@@ -120,7 +133,10 @@ export function deliberate(beliefs: BeliefSet, now: number): Candidate[] {
     const delivery = nearestDelivery(map, parcelPos);
     if (delivery === undefined) continue;
 
-    const value = pickupValue(parcel, myPos, delivery, now, settings, map);
+    const value =
+      carried.length > 0
+        ? enRouteTourValue(parcel, carried, myPos, delivery, now, settings, map)
+        : pickupValue(parcel, myPos, delivery, now, settings, map);
     if (value <= 0) continue;
 
     const intention: PickupIntention = {

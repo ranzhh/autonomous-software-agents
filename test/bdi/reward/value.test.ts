@@ -3,6 +3,7 @@ import {
   currentReward,
   deliverValue,
   detourCost,
+  enRouteTourValue,
   enRouteValue,
   pickupValue,
 } from "../../../src/bdi/reward/value.js";
@@ -276,6 +277,88 @@ describe("enRouteValue", () => {
     const parcel = { reward: 10, updatedAt: 0, x: 2, y: 0 };
     const val = enRouteValue(
       parcel,
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      0,
+      noDecay,
+      map,
+    );
+    expect(val).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enRouteTourValue
+// ---------------------------------------------------------------------------
+
+describe("enRouteTourValue", () => {
+  it("reduces to pickupValue when carrying nothing", () => {
+    const map = grid(5, 5);
+    const parcel = { reward: 12, updatedAt: 0, x: 4, y: 4 };
+    const me: Pos = { x: 0, y: 4 };
+    const delivery: Pos = { x: 0, y: 0 };
+    const tour = enRouteTourValue(parcel, [], me, delivery, 0, fastDecay, map);
+    const standalone = pickupValue(parcel, me, delivery, 0, fastDecay, map);
+    expect(tour).toBe(standalone);
+  });
+
+  it("sums carried + new parcel rewards when no decay", () => {
+    const map = grid(5, 5);
+    const parcel = { reward: 7, updatedAt: 0, x: 4, y: 4 };
+    const carried = [
+      { reward: 5, updatedAt: 0 },
+      { reward: 3, updatedAt: 0 },
+    ];
+    const val = enRouteTourValue(
+      parcel,
+      carried,
+      { x: 0, y: 4 },
+      { x: 0, y: 0 },
+      0,
+      noDecay,
+      map,
+    );
+    expect(val).toBe(15); // 5 + 3 + 7
+  });
+
+  it("falls as the carried stack grows (detour decay scales with stack size)", () => {
+    const map = grid(5, 5);
+    const parcel = { reward: 14, updatedAt: 0, x: 4, y: 4 };
+    const me: Pos = { x: 0, y: 4 };
+    const delivery: Pos = { x: 0, y: 0 };
+    const one = enRouteTourValue(
+      parcel,
+      [{ reward: 20, updatedAt: 0 }],
+      me,
+      delivery,
+      0,
+      fastDecay,
+      map,
+    );
+    const three = enRouteTourValue(
+      parcel,
+      [
+        { reward: 20, updatedAt: 0 },
+        { reward: 20, updatedAt: 0 },
+        { reward: 20, updatedAt: 0 },
+      ],
+      me,
+      delivery,
+      0,
+      fastDecay,
+      map,
+    );
+    // More carried parcels each lose extra reward over the longer detour route,
+    // so the *per-parcel* tour value is lower — verify via the average.
+    expect(three / 3).toBeLessThan(one / 1);
+  });
+
+  it("returns 0 when the parcel (or its delivery) is unreachable", () => {
+    const map = grid(3, 1, [{ x: 1, y: 0 }]);
+    const parcel = { reward: 10, updatedAt: 0, x: 2, y: 0 };
+    const val = enRouteTourValue(
+      parcel,
+      [{ reward: 5, updatedAt: 0 }],
       { x: 0, y: 0 },
       { x: 0, y: 0 },
       0,

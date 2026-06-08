@@ -8,12 +8,19 @@
  *   (a) decay already elapsed since last sensing (`updatedAt` → `now`), and
  *   (b) decay during the travel itself (steps × moveDurationMs / decayMs ticks).
  *
- * `pickupValue`   — standalone pickup + deliver (full path: me → parcel → delivery).
- * `deliverValue`  — deliver all currently-carried parcels (path: me → delivery).
- * `detourCost`    — extra steps when detouring via a parcel on the way to delivery.
- * `enRouteValue`  — opportunistic pickup while already heading to delivery:
- *                   same as `pickupValue` but uses `detourCost` as the decay driver
- *                   (since the committed delivery travel is paid regardless).
+ * `pickupValue`     — standalone pickup + deliver (full path: me → parcel → delivery).
+ * `deliverValue`    — deliver all currently-carried parcels (path: me → delivery).
+ * `detourCost`      — extra steps when detouring via a parcel on the way to delivery.
+ * `enRouteValue`    — opportunistic pickup while already heading to delivery:
+ *                     same as `pickupValue` but uses `detourCost` as the decay driver
+ *                     (since the committed delivery travel is paid regardless).
+ * `enRouteTourValue`— total reward delivered if, while carrying `carried`, I divert via a
+ *                     new parcel and then deliver the whole stack (me → parcel → delivery).
+ *                     Directly comparable to `deliverValue` (both are total-delivered-value),
+ *                     so deliberation can rank "divert for this parcel" against "deliver now":
+ *                     the longer route decays the WHOLE carried stack (cost scales with how
+ *                     many parcels I hold), and a divert only wins when the new parcel's
+ *                     reward outweighs that extra stack decay.
  */
 
 import type { GameMap, Pos } from "../../core/beliefs/index.js";
@@ -180,4 +187,48 @@ export function enRouteValue(
   );
   const lost = decayDuringTravel(extra, movementDurationMs, parcelDecayMs);
   return Math.max(0, cur - lost);
+}
+
+/**
+ * Total reward delivered if, while already carrying `carried`, I divert via the
+ * free `parcel` and then deliver the whole (carried + parcel) stack along the
+ * route myPos → parcel → deliveryPos. Every parcel (carried and new) decays over
+ * the full `legA + legB` travel — so the cost of the detour grows with the size
+ * of the carried stack. Returns 0 if either leg is unreachable.
+ *
+ * Comparable to `deliverValue(carried, myPos, nearestDelivery)`: ranking the two
+ * lets deliberation decide "divert for this parcel" vs "deliver now" — the divert
+ * wins only when the new parcel's reward beats the extra decay it inflicts on the
+ * stack. With `carried = []` it reduces to `pickupValue`.
+ */
+export function enRouteTourValue(
+  parcel: ParcelLike,
+  carried: ReadonlyArray<Pick<ParcelLike, "reward" | "updatedAt">>,
+  myPos: Pos,
+  deliveryPos: Pos,
+  now: number,
+  settings: RewardSettings,
+  map: GameMap,
+): number {
+  const parcelPos: Pos = { x: parcel.x, y: parcel.y };
+  const legA = stepsTo(map, myPos, parcelPos);
+  if (legA === null) return 0;
+  const legB = stepsTo(map, parcelPos, deliveryPos);
+  if (legB === null) return 0;
+
+  const { parcelDecayMs, movementDurationMs } = settings;
+  const lost = decayDuringTravel(
+    legA + legB,
+    movementDurationMs,
+    parcelDecayMs,
+  );
+
+  const newParcel = Math.max(
+    0,
+    currentReward(parcel.reward, parcel.updatedAt, now, parcelDecayMs) - lost,
+  );
+  return carried.reduce<number>((sum, p) => {
+    const cur = currentReward(p.reward, p.updatedAt, now, parcelDecayMs);
+    return sum + Math.max(0, cur - lost);
+  }, newParcel);
 }

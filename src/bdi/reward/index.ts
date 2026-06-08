@@ -10,6 +10,7 @@ export {
   currentReward,
   deliverValue,
   detourCost,
+  enRouteTourValue,
   enRouteValue,
   type ParcelLike,
   pickupValue,

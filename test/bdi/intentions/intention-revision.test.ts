@@ -140,6 +140,40 @@ describe("deliberate", () => {
     expect(pickups).toHaveLength(2);
   });
 
+  it("en-route: diverts for a worthwhile parcel when carrying a small stack", () => {
+    // myPos (0,4), only delivery (0,0). Carrying one reward-20 parcel.
+    // Free parcel at (4,4) reward 14. move=500ms, decay=1000ms → 0.5 ticks/step.
+    //   deliver now      = 20 - decay(4)  = 20 - 2 = 18
+    //   divert via parcel = (14 - decay(12)) + (20 - decay(12)) = 8 + 14 = 22
+    // 22 > 18 → the divert (pickup) outranks delivering now.
+    const beliefs = makeBeliefs({
+      myPos: { x: 0, y: 4 },
+      carried: [makeParcel("c1", 0, 4, 20)],
+      free: [makeParcel("p1", 4, 4, 14)],
+    });
+    const result = deliberate(beliefs, NOW);
+    expect(result[0]?.intention.kind).toBe("pickup");
+  });
+
+  it("en-route: prefers delivering now when the carried stack is large", () => {
+    // Same geometry/parcel, but now carrying THREE reward-20 parcels. The detour
+    // decays the whole stack, so the marginal grab no longer pays:
+    //   deliver now      = 3 × (20 - 2)        = 54
+    //   divert via parcel = (14 - 6) + 3×(20-6) = 8 + 42 = 50
+    // 54 > 50 → deliver outranks the divert (stack-decay dominates).
+    const beliefs = makeBeliefs({
+      myPos: { x: 0, y: 4 },
+      carried: [
+        makeParcel("c1", 0, 4, 20),
+        makeParcel("c2", 0, 4, 20),
+        makeParcel("c3", 0, 4, 20),
+      ],
+      free: [makeParcel("p1", 4, 4, 14)],
+    });
+    const result = deliberate(beliefs, NOW);
+    expect(result[0]?.intention.kind).toBe("deliver");
+  });
+
   it("sorts candidates descending by value", () => {
     const beliefs = makeBeliefs({
       myPos: { x: 2, y: 2 },
