@@ -18,3 +18,18 @@ export type {
 
 /** Movement directions accepted by `emitMove` (y is inverted: up = y+1). */
 export type Direction = "up" | "down" | "left" | "right";
+
+/**
+ * A grid coordinate returned by `emitMove` on success. Structurally identical to
+ * `core/beliefs` `Pos`, but owned here so `core/sdk` never imports "upward" into a
+ * sibling that already depends on it (which would be a cycle).
+ */
+export interface Position {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** A parcel reference as returned by `emitPickup` / `emitPutdown`. */
+export interface PickedParcel {
+  readonly id: string;
+}

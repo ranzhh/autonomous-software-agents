@@ -28,4 +28,6 @@ export type {
   IOSensing,
   IOTile,
   IOTileType,
+  PickedParcel,
+  Position,
 } from "./types.js";

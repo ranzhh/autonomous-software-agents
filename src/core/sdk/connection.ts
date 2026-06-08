@@ -14,7 +14,15 @@
 
 import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import { SensingError } from "../util/index.js";
-import type { IOAgent, IOConfig, IOSensing, IOTile } from "./types.js";
+import type {
+  Direction,
+  IOAgent,
+  IOConfig,
+  IOSensing,
+  IOTile,
+  PickedParcel,
+  Position,
+} from "./types.js";
 
 export interface GameMapData {
   readonly width: number;
@@ -30,6 +38,9 @@ export interface DjsSocketLike {
   ): void;
   onYou(listener: (me: IOAgent) => void): void;
   onSensing(listener: (sensing: IOSensing) => void): void;
+  emitMove(direction: Direction): Promise<Position | false>;
+  emitPickup(): Promise<PickedParcel[]>;
+  emitPutdown(selected?: string[]): Promise<PickedParcel[]>;
   disconnect(): void;
 }
 
@@ -41,6 +52,12 @@ export interface GameConnection {
   map(): GameMapData | undefined;
   me(): IOAgent | undefined;
   onSensing(listener: (sensing: IOSensing) => void): void;
+  /** Move one tile; resolves to the new position, or `false` if the tile was occupied. */
+  emitMove(direction: Direction): Promise<Position | false>;
+  /** Pick up every uncarried parcel on the current tile; resolves to the picked parcels. */
+  emitPickup(): Promise<readonly PickedParcel[]>;
+  /** Put down parcels (omit/`[]` drops ALL); resolves to the dropped parcels. */
+  emitPutdown(selected?: readonly string[]): Promise<readonly PickedParcel[]>;
   disconnect(): void;
 }
 
@@ -91,6 +108,10 @@ export function createConnection(socket: DjsSocketLike): GameConnection {
     map: () => map,
     me: () => me,
     onSensing: (listener) => socket.onSensing(listener),
+    emitMove: (direction) => socket.emitMove(direction),
+    emitPickup: () => socket.emitPickup(),
+    emitPutdown: (selected) =>
+      socket.emitPutdown(selected === undefined ? undefined : [...selected]),
     disconnect: () => socket.disconnect(),
     ready: (timeoutMs) =>
       new Promise<void>((resolve, reject) => {

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   createConnection,
+  type Direction,
   type DjsSocketLike,
   type IOAgent,
   type IOConfig,
   type IOSensing,
   type IOTile,
+  type PickedParcel,
+  type Position,
 } from "../../../src/core/sdk/index.js";
 import { SensingError } from "../../../src/core/util/index.js";
 
@@ -16,6 +19,13 @@ class MockSocket implements DjsSocketLike {
   private youCb?: (me: IOAgent) => void;
   private sensingCb?: (sensing: IOSensing) => void;
   disconnected = false;
+
+  // Scripted action results + captured arguments for the emit* delegation tests.
+  moveResult: Position | false = { x: 0, y: 0 };
+  pickupResult: PickedParcel[] = [];
+  putdownResult: PickedParcel[] = [];
+  lastMove?: Direction;
+  lastPutdown?: string[] | undefined;
 
   onConfig(listener: (config: IOConfig) => void): void {
     this.configCb = listener;
@@ -30,6 +40,17 @@ class MockSocket implements DjsSocketLike {
   }
   onSensing(listener: (sensing: IOSensing) => void): void {
     this.sensingCb = listener;
+  }
+  async emitMove(direction: Direction): Promise<Position | false> {
+    this.lastMove = direction;
+    return this.moveResult;
+  }
+  async emitPickup(): Promise<PickedParcel[]> {
+    return this.pickupResult;
+  }
+  async emitPutdown(selected?: string[]): Promise<PickedParcel[]> {
+    this.lastPutdown = selected;
+    return this.putdownResult;
   }
   disconnect(): void {
     this.disconnected = true;
@@ -146,5 +167,47 @@ describe("createConnection", () => {
     const conn = createConnection(sock);
     conn.disconnect();
     expect(sock.disconnected).toBe(true);
+  });
+
+  it("emitMove forwards the direction and surfaces the new position", async () => {
+    const sock = new MockSocket();
+    sock.moveResult = { x: 4, y: 5 };
+    const conn = createConnection(sock);
+    await expect(conn.emitMove("up")).resolves.toEqual({ x: 4, y: 5 });
+    expect(sock.lastMove).toBe("up");
+  });
+
+  it("emitMove surfaces a false result (blocked tile)", async () => {
+    const sock = new MockSocket();
+    sock.moveResult = false;
+    const conn = createConnection(sock);
+    await expect(conn.emitMove("right")).resolves.toBe(false);
+  });
+
+  it("emitPickup surfaces the picked parcels", async () => {
+    const sock = new MockSocket();
+    sock.pickupResult = [{ id: "p1" }, { id: "p2" }];
+    const conn = createConnection(sock);
+    await expect(conn.emitPickup()).resolves.toEqual([
+      { id: "p1" },
+      { id: "p2" },
+    ]);
+  });
+
+  it("emitPutdown forwards a copy of the ids and surfaces the dropped parcels", async () => {
+    const sock = new MockSocket();
+    sock.putdownResult = [{ id: "p1" }];
+    const conn = createConnection(sock);
+    const ids = ["p1"];
+    await expect(conn.emitPutdown(ids)).resolves.toEqual([{ id: "p1" }]);
+    expect(sock.lastPutdown).toEqual(["p1"]);
+    expect(sock.lastPutdown).not.toBe(ids); // delegated a copy, not the caller's array
+  });
+
+  it("emitPutdown with no argument drops all (passes undefined through)", async () => {
+    const sock = new MockSocket();
+    const conn = createConnection(sock);
+    await conn.emitPutdown();
+    expect(sock.lastPutdown).toBeUndefined();
   });
 });

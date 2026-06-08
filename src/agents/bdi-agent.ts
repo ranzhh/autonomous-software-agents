@@ -1,14 +1,16 @@
 /**
  * Agent A (BDI) entrypoint — `npm run bdi`.
  *
- * Phase 0–1: connectivity + world-model check. Connects to the game, waits
- * until ready, builds a BeliefSet, then logs several sensing snapshots (parcels
- * decaying/appearing, agents coming into view) before disconnecting. There is no
- * BDI control loop yet — that arrives in Phase 3.
- * With no TOKEN_BDI set, logs a hint and exits cleanly.
+ * Phase 0–2: connectivity + world-model + a first movement demo. Connects, waits
+ * until ready, builds a BeliefSet, logs one sensing snapshot, then navigates to the
+ * nearest delivery tile (BFS over the map, A* per step via the `GoTo` plan) to
+ * prove the movement stack end-to-end. There is no BDI control loop yet — that
+ * arrives in Phase 3. With no TOKEN_BDI set, logs a hint and exits cleanly.
  */
 
+import { createPlanContext, GoTo } from "../bdi/plans/index.js";
 import { createBeliefSet } from "../core/beliefs/index.js";
+import { bfsToNearest } from "../core/pathfinding/index.js";
 import { connectToGame, loadConfig, loadDotEnv } from "../core/sdk/index.js";
 import { createLogger } from "../core/util/index.js";
 
@@ -48,37 +50,52 @@ if (cfg.tokenBdi === undefined) {
         `${beliefs.gameMap?.spawnerTiles.length ?? 0} spawner tiles`,
     );
 
-    // Log the first few sensing snapshots to verify belief revision live.
-    let snapshots = 0;
-    const MAX_SNAPSHOTS = 10;
-
+    // Wait for the first sensing so position + blockers are known, log a snapshot.
     await new Promise<void>((resolve) => {
       const unsub = beliefs.onUpdated(() => {
-        snapshots++;
         const free = beliefs.parcels.free();
-        const carrying = beliefs.parcels.carriedByMe();
         const rivals = beliefs.agents.rivals();
         const teammates = beliefs.agents.teammates();
         log.info(
-          `sensing #${snapshots}: ` +
-            `parcels free=${free.length} carrying=${carrying.length} · ` +
+          `first sensing: parcels free=${free.length} · ` +
             `agents rivals=${rivals.length} teammates=${teammates.length}`,
         );
-        if (free.length > 0) {
-          const p = free[0];
-          if (p !== undefined) {
-            const rem = beliefs.parcels.remainingReward(p.id, Date.now());
-            log.debug(
-              `  nearest free parcel: id=${p.id} reward=${rem} at (${p.x},${p.y})`,
-            );
-          }
-        }
-        if (snapshots >= MAX_SNAPSHOTS) {
-          unsub();
-          resolve();
-        }
+        unsub();
+        resolve();
       });
     });
+
+    // Movement demo: navigate to the nearest reachable delivery tile.
+    const ctx = createPlanContext(beliefs, game);
+    const myPos = ctx.myPosition();
+    if (myPos === undefined) {
+      log.warn(
+        "position unknown after first sensing — skipping navigation demo",
+      );
+    } else {
+      const route = bfsToNearest(ctx.map, myPos, ctx.map.deliveryTiles, {
+        isBlocked: ctx.isBlocked,
+      });
+      const routeLen = route?.length ?? 0;
+      const target = route === null ? undefined : route[routeLen - 1];
+      if (target === undefined) {
+        log.warn("no reachable delivery tile — skipping navigation demo");
+      } else {
+        log.info(
+          `navigating from (${myPos.x},${myPos.y}) to nearest delivery ` +
+            `(${target.x},${target.y}) · ${routeLen}-tile route`,
+        );
+        try {
+          await new GoTo(ctx).execute({ kind: "goto", target });
+          const arrived = ctx.myPosition();
+          log.info(`arrived at (${arrived?.x ?? "?"},${arrived?.y ?? "?"})`);
+        } catch (error) {
+          log.error(
+            `navigation failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
   } catch (error) {
     log.error(
       `error: ${error instanceof Error ? error.message : String(error)}`,
