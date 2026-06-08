@@ -1,12 +1,16 @@
 /**
- * bdi/reward — the value functions deliberation uses to rank candidate
- * intentions: remaining-reward after decay, distance/detour cost, multi-pickup
- * and en-route opportunistic pickup, and capacity as an advisory (not enforced
- * server-side). This is where Level-2 mission policy reshapes standard play via
- * reward shaping (per-tile multipliers, max parcel value).
- *
- * Intended files (added in Phase 3, extended in Phase 7):
- *   - value.ts — decay/distance/detour value of a pickup/deliver intention.
+ * bdi/reward — pure value functions deliberation uses to rank candidate
+ * intentions: expected parcel reward at delivery time, accounting for decay
+ * elapsed since last sensing and decay during travel. Detour cost for en-route
+ * opportunistic pickup. Extended in Phase 7 with Level-2 reward shaping
+ * (per-tile multipliers, max-parcel-value cap, stack-size gates).
  */
 
-export {};
+export {
+  currentReward,
+  deliverValue,
+  detourCost,
+  enRouteValue,
+  type ParcelLike,
+  pickupValue,
+} from "./value.js";

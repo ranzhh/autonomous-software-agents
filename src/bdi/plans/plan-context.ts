@@ -36,6 +36,10 @@ export interface PlanContext {
   readonly moveDurationMs: number;
   /** Sleep `ms`; injectable so tests resolve instantly. */
   wait(ms: number): Promise<void>;
+  /** IDs of parcels I am currently carrying (live query from beliefs). */
+  carriedParcelIds(): readonly string[];
+  /** True iff parcel `id` is believed to be free (not carried by anyone). */
+  isParcelFree(id: string): boolean;
 }
 
 export interface PlanContextOptions {
@@ -89,5 +93,11 @@ export function createPlanContext(
     emitMove: (direction) => connection.emitMove(direction),
     emitPickup: () => connection.emitPickup(),
     emitPutdown: (ids) => connection.emitPutdown(ids),
+    carriedParcelIds() {
+      return beliefs.parcels.carriedByMe().map((p) => p.id);
+    },
+    isParcelFree(id) {
+      return beliefs.parcels.free().some((p) => p.id === id);
+    },
   };
 }

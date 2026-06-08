@@ -12,4 +12,16 @@
  *                             (added in Phase 3).
  */
 
-export type { GoToIntention, Intention } from "./intention.js";
+export type {
+  DeliverIntention,
+  ExploreIntention,
+  GoToIntention,
+  Intention,
+  PickupIntention,
+} from "./intention.js";
+export {
+  type Candidate,
+  deliberate,
+  IntentionRevision,
+  randomExploreTarget,
+} from "./intention-revision.js";
