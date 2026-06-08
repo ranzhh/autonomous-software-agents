@@ -17,6 +17,7 @@ export {
   type GameConnection,
   type GameMapData,
 } from "./connection.js";
+export { extractToken, parseTokenArgs, type TokenArgs } from "./token.js";
 export type {
   Direction,
   IOAgent,
