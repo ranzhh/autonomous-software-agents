@@ -1,18 +1,34 @@
 /**
  * Agent A (BDI) entrypoint — `npm run bdi`.
  *
- * Phase 0–2: connectivity + world-model + a first movement demo. Connects, waits
- * until ready, builds a BeliefSet, logs one sensing snapshot, then navigates to the
- * nearest delivery tile (BFS over the map, A* per step via the `GoTo` plan) to
- * prove the movement stack end-to-end. There is no BDI control loop yet — that
- * arrives in Phase 3. With no TOKEN_BDI set, logs a hint and exits cleanly.
+ * Full BDI control loop (Phase 3):
+ *   sense → revise beliefs → IntentionRevision.revise → select plan → execute
+ *
+ * On each `onUpdated` event (post-sensing belief revision):
+ *   1. Ask IntentionRevision whether to switch intentions.
+ *   2. If yes: stop the in-flight plan (cooperative abort), then start the new
+ *      one asynchronously.
+ *   3. On PlanFailedError: call revision.reset() so re-deliberation starts
+ *      from scratch rather than being suppressed by hysteresis.
+ *
+ * Concurrency model: only one plan executes at a time. `onUpdated` callbacks
+ * are synchronous and fast (just revise → maybe stop); the async plan execution
+ * runs in the background and is replaced by the next intention when needed.
  */
 
-import { createPlanContext, GoTo } from "../bdi/plans/index.js";
+import { IntentionRevision } from "../bdi/intentions/index.js";
+import type { BasePlan } from "../bdi/plans/index.js";
+import {
+  createPlanContext,
+  Deliver,
+  GoPickUp,
+  GoTo,
+  PlanLibrary,
+  Wander,
+} from "../bdi/plans/index.js";
 import { createBeliefSet } from "../core/beliefs/index.js";
-import { bfsToNearest } from "../core/pathfinding/index.js";
 import { connectToGame, loadConfig, loadDotEnv } from "../core/sdk/index.js";
-import { createLogger } from "../core/util/index.js";
+import { createLogger, PlanFailedError } from "../core/util/index.js";
 
 loadDotEnv();
 const cfg = loadConfig();
@@ -31,12 +47,10 @@ if (cfg.tokenBdi === undefined) {
     await game.ready(15_000);
 
     const me = game.me();
-    const map = game.map();
     const gameOptions = game.config()?.GAME;
     log.info(
       `connected as ${me?.name} (${me?.id}) · team ${me?.teamName} · at (${me?.x ?? "?"},${me?.y ?? "?"})`,
     );
-    log.info(`map ${map?.width}×${map?.height} · ${map?.tiles.length} tiles`);
     log.info(
       `settings: move=${gameOptions?.player.movement_duration}ms ` +
         `· view=${gameOptions?.player.observation_distance} ` +
@@ -45,60 +59,94 @@ if (cfg.tokenBdi === undefined) {
     );
 
     const beliefs = createBeliefSet(game);
-    log.info(
-      `game-map: ${beliefs.gameMap?.deliveryTiles.length ?? 0} delivery, ` +
-        `${beliefs.gameMap?.spawnerTiles.length ?? 0} spawner tiles`,
-    );
-
-    // Wait for the first sensing so position + blockers are known, log a snapshot.
-    await new Promise<void>((resolve) => {
-      const unsub = beliefs.onUpdated(() => {
-        const free = beliefs.parcels.free();
-        const rivals = beliefs.agents.rivals();
-        const teammates = beliefs.agents.teammates();
-        log.info(
-          `first sensing: parcels free=${free.length} · ` +
-            `agents rivals=${rivals.length} teammates=${teammates.length}`,
-        );
-        unsub();
-        resolve();
-      });
-    });
-
-    // Movement demo: navigate to the nearest reachable delivery tile.
     const ctx = createPlanContext(beliefs, game);
-    const myPos = ctx.myPosition();
-    if (myPos === undefined) {
-      log.warn(
-        "position unknown after first sensing — skipping navigation demo",
-      );
-    } else {
-      const route = bfsToNearest(ctx.map, myPos, ctx.map.deliveryTiles, {
-        isBlocked: ctx.isBlocked,
-      });
-      const routeLen = route?.length ?? 0;
-      const target = route === null ? undefined : route[routeLen - 1];
-      if (target === undefined) {
-        log.warn("no reachable delivery tile — skipping navigation demo");
-      } else {
-        log.info(
-          `navigating from (${myPos.x},${myPos.y}) to nearest delivery ` +
-            `(${target.x},${target.y}) · ${routeLen}-tile route`,
-        );
-        try {
-          await new GoTo(ctx).execute({ kind: "goto", target });
-          const arrived = ctx.myPosition();
-          log.info(`arrived at (${arrived?.x ?? "?"},${arrived?.y ?? "?"})`);
-        } catch (error) {
+    const library = new PlanLibrary([
+      new GoPickUp(ctx),
+      new Deliver(ctx),
+      new Wander(ctx),
+      new GoTo(ctx),
+    ]);
+    const revision = new IntentionRevision();
+
+    let activePlan: BasePlan | undefined;
+    let activeDone: Promise<void> = Promise.resolve();
+
+    async function runPlan(
+      plan: BasePlan,
+      intention: Parameters<BasePlan["execute"]>[0],
+    ): Promise<void> {
+      try {
+        await plan.execute(intention);
+        // Only reset + log when this plan is still the active one (not already
+        // replaced by a preempting intention). Reset lets the next sensing event
+        // pick a fresh intention rather than being blocked by hysteresis on the
+        // now-completed one (e.g. explore→explore after Wander reaches its target).
+        if (activePlan === plan) {
+          log.debug(`plan ${plan.name} completed`);
+          revision.reset();
+        }
+      } catch (err) {
+        if (err instanceof PlanFailedError) {
+          log.warn(`plan ${plan.name} failed: ${err.message}`);
+        } else {
           log.error(
-            `navigation failed: ${error instanceof Error ? error.message : String(error)}`,
+            `plan ${plan.name} threw unexpectedly: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+        revision.reset();
+      } finally {
+        if (activePlan === plan) activePlan = undefined;
       }
     }
+
+    function deliberateAndAct(): void {
+      const now = Date.now();
+      const newIntention = revision.revise(beliefs, now);
+      if (newIntention === undefined) return; // keep current plan
+
+      log.info(
+        `intention → ${newIntention.kind}` +
+          ("parcelId" in newIntention
+            ? ` (parcel ${newIntention.parcelId})`
+            : "") +
+          ` @ (${newIntention.target.x},${newIntention.target.y})`,
+      );
+
+      // Stop the current plan cooperatively.
+      activePlan?.stop();
+
+      const plan = library.select(newIntention);
+      if (plan === undefined) {
+        log.warn(
+          `no plan applicable to ${newIntention.kind} — re-deliberating`,
+        );
+        revision.reset();
+        return;
+      }
+
+      activePlan = plan;
+      activeDone = runPlan(plan, newIntention);
+    }
+
+    beliefs.onUpdated(() => deliberateAndAct());
+
+    // Bootstrap: trigger deliberation immediately so the agent doesn't wait for
+    // the first sensing event (on some server configs sensing fires only after
+    // the first action, which would create a deadlock).
+    deliberateAndAct();
+
+    log.info("BDI loop running — Ctrl-C to stop");
+
+    // Keep the process alive until SIGINT.
+    await new Promise<void>((resolve) => {
+      process.once("SIGINT", resolve);
+    });
+
+    activePlan?.stop();
+    await activeDone;
   } catch (error) {
     log.error(
-      `error: ${error instanceof Error ? error.message : String(error)}`,
+      `fatal: ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
     game.disconnect();

@@ -84,6 +84,8 @@ function createSim(params: SimParams): Sim {
     wait: async () => {
       waitCount++;
     },
+    carriedParcelIds: () => [],
+    isParcelFree: () => true,
   };
 
   return {
@@ -169,6 +171,8 @@ describe("GoTo — failure handling", () => {
       emitPickup: async () => [],
       emitPutdown: async () => [],
       wait: async () => {},
+      carriedParcelIds: () => [],
+      isParcelFree: () => true,
     };
     await expect(
       new GoTo(ctx).execute(goto({ x: 2, y: 0 })),
@@ -176,14 +180,15 @@ describe("GoTo — failure handling", () => {
   });
 });
 
-describe("GoTo — abort", () => {
-  it("stops cooperatively without reaching a far target", async () => {
+describe("GoTo — reuse after stop", () => {
+  it("navigates normally when called after a prior stop() (instance reuse)", async () => {
     const sim = createSim({ map: gridMap(5, 1), start: { x: 0, y: 0 } });
     const plan = new GoTo(sim.ctx);
+    // Simulate prior stop (e.g. from PlanLibrary singleton reuse).
     plan.stop();
+    // execute() resets abort state — plan should proceed normally.
     await plan.execute(goto({ x: 4, y: 0 }));
-    expect(sim.emitted).toEqual([]);
-    expect(sim.pos()).toEqual({ x: 0, y: 0 });
+    expect(sim.pos()).toEqual({ x: 4, y: 0 });
   });
 });
 

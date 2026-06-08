@@ -45,6 +45,7 @@ export class GoTo extends BasePlan {
   }
 
   override async execute(intention: Intention): Promise<void> {
+    this.aborted = false; // reset so this instance can be reused after a prior stop()
     if (intention.kind !== "goto") {
       throw new PlanFailedError(
         `GoTo cannot execute intention "${intention.kind}"`,
