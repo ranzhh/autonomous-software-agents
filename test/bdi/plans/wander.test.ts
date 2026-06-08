@@ -46,6 +46,9 @@ function makeCtx(map: GameMap, start: Pos): PlanContext {
     wait: async () => {},
     carriedParcelIds: () => [],
     isParcelFree: () => true,
+    freeParcelIdsAt: () => [],
+    applyPickup: () => {},
+    applyDelivered: () => {},
   } as unknown as PlanContext;
 }
 

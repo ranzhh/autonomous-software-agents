@@ -40,6 +40,16 @@ export interface PlanContext {
   carriedParcelIds(): readonly string[];
   /** True iff parcel `id` is believed to be free (not carried by anyone). */
   isParcelFree(id: string): boolean;
+  /** IDs of free (uncarried) parcels believed to be sitting on tile `p`. */
+  freeParcelIdsAt(p: Pos): readonly string[];
+  /**
+   * Optimistically record an `emitPickup` ack: mark `ids` carried-by-me in beliefs
+   * now, so the next deliberation reflects the pickup without waiting for sensing
+   * (prevents re-committing to the just-picked parcel). No-op without a known self id.
+   */
+  applyPickup(ids: readonly string[]): void;
+  /** Optimistically record a delivery (`emitPutdown` on a delivery tile): forget `ids`. */
+  applyDelivered(ids: readonly string[]): void;
 }
 
 export interface PlanContextOptions {
@@ -98,6 +108,21 @@ export function createPlanContext(
     },
     isParcelFree(id) {
       return beliefs.parcels.free().some((p) => p.id === id);
+    },
+    freeParcelIdsAt(p) {
+      return beliefs.parcels
+        .free()
+        .filter((parcel) => parcel.x === p.x && parcel.y === p.y)
+        .map((parcel) => parcel.id);
+    },
+    applyPickup(ids) {
+      const myId = beliefs.me?.id;
+      if (myId === undefined || ids.length === 0) return;
+      beliefs.parcels.applyPickup(ids, myId, Date.now());
+    },
+    applyDelivered(ids) {
+      if (ids.length === 0) return;
+      beliefs.parcels.applyDelivered(ids);
     },
   };
 }

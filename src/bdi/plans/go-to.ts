@@ -63,7 +63,14 @@ export class GoTo extends BasePlan {
     const isBlocked = (p: Pos): boolean =>
       !samePos(p, target) && this.ctx.isBlocked(p);
 
+    // Opportunistically grab any free parcel already on the start tile.
+    await this.grabHere(cur);
+
     let failures = 0;
+    // The tile we were on before the last successful move — used to damp the
+    // back-and-forth oscillation that a rival shuffling on the shortest path can
+    // induce (we re-path every step, so the chosen step can flip each tick).
+    let prev: Pos | undefined;
     while (!samePos(cur, target)) {
       if (this.aborted) return;
       if (failures >= this.maxFailures) {
@@ -72,14 +79,26 @@ export class GoTo extends BasePlan {
         );
       }
 
-      const path = astar(this.ctx.map, cur, target, { isBlocked });
-      const next = path?.[1];
+      let next = astar(this.ctx.map, cur, target, { isBlocked })?.[1];
       if (next === undefined) {
         // Transiently unreachable (blocked) — wait a move-duration and re-path.
         failures++;
         await this.ctx.wait(this.ctx.moveDurationMs);
         cur = this.ctx.myPosition() ?? cur;
         continue;
+      }
+
+      // Anti-oscillation: if the next step would walk straight back to where we
+      // just came from, prefer an equal-or-longer route that doesn't reverse —
+      // but only if one exists (else the reversal is the genuine only way).
+      if (prev !== undefined && samePos(next, prev)) {
+        const backFrom = prev;
+        const noBacktrack = (p: Pos): boolean =>
+          isBlocked(p) || (!samePos(p, target) && samePos(p, backFrom));
+        const altNext = astar(this.ctx.map, cur, target, {
+          isBlocked: noBacktrack,
+        })?.[1];
+        if (altNext !== undefined) next = altNext;
       }
 
       const direction = directionTo(cur, next);
@@ -98,8 +117,24 @@ export class GoTo extends BasePlan {
         continue;
       }
 
+      prev = cur;
       cur = { x: result.x, y: result.y };
       failures = 0;
+      // Grab any free parcel sitting on the tile we just stepped onto. There is
+      // no capacity limit, so collecting a parcel we pass over is free value
+      // regardless of the current goal (pickup / deliver / explore).
+      await this.grabHere(cur);
     }
+  }
+
+  /**
+   * If free parcels sit on tile `at`, pick them all up and reflect it in beliefs
+   * immediately (so deliberation re-assesses with the larger carried set).
+   */
+  private async grabHere(at: Pos): Promise<void> {
+    if (this.aborted) return;
+    if (this.ctx.freeParcelIdsAt(at).length === 0) return;
+    const picked = await this.ctx.emitPickup();
+    this.ctx.applyPickup(picked.map((p) => p.id));
   }
 }

@@ -49,7 +49,19 @@ export class Deliver extends BasePlan {
     if (this.inner === inner) this.inner = undefined;
 
     if (!this.aborted && this.generation === gen) {
+      const delivered = this.ctx.carriedParcelIds();
+      if (delivered.length === 0) {
+        // Beliefs were stale when deliberation selected this plan — the parcels
+        // were already delivered. Re-deliberate rather than issuing a no-op putdown.
+        throw new PlanFailedError(
+          "Deliver: no parcels to put down (stale beliefs)",
+        );
+      }
       await this.ctx.emitPutdown();
+      // We always putdown on a delivery tile → the stack is scored & removed.
+      // Forget it immediately so the next deliberation doesn't re-commit to
+      // `deliver` on stale beliefs (the phantom-carry freeze, pre-empted here).
+      this.ctx.applyDelivered(delivered);
     }
   }
 }

@@ -45,12 +45,15 @@ interface SimParams {
   readonly blocked?: ReadonlyArray<Pos>;
   /** Return true to make the n-th emitMove (1-based) resolve to `false`. */
   readonly failMove?: (attempt: number, dir: Direction) => boolean;
+  /** Free parcels lying on the grid (collected when the agent steps on them). */
+  readonly parcels?: ReadonlyArray<{ x: number; y: number; id: string }>;
 }
 
 interface Sim {
   readonly ctx: PlanContext;
   readonly emitted: Direction[];
   readonly visited: Pos[];
+  readonly applied: string[];
   pos(): Pos;
   waits(): number;
 }
@@ -63,6 +66,13 @@ function createSim(params: SimParams): Sim {
   let position: Pos = params.start;
   const emitted: Direction[] = [];
   const visited: Pos[] = [params.start];
+  const applied: string[] = [];
+  // Mutable free-parcel store keyed by "x,y" → ids on that tile.
+  const parcelTiles = new Map<string, string[]>();
+  for (const p of params.parcels ?? []) {
+    const key = `${p.x},${p.y}`;
+    parcelTiles.set(key, [...(parcelTiles.get(key) ?? []), p.id]);
+  }
   let attempts = 0;
   let waitCount = 0;
 
@@ -79,19 +89,30 @@ function createSim(params: SimParams): Sim {
       visited.push(position);
       return position;
     },
-    emitPickup: async () => [],
+    emitPickup: async () => {
+      const key = `${position.x},${position.y}`;
+      const ids = parcelTiles.get(key) ?? [];
+      parcelTiles.delete(key);
+      return ids.map((id) => ({ id }));
+    },
     emitPutdown: async () => [],
     wait: async () => {
       waitCount++;
     },
     carriedParcelIds: () => [],
     isParcelFree: () => true,
+    freeParcelIdsAt: (p) => parcelTiles.get(`${p.x},${p.y}`) ?? [],
+    applyPickup: (ids) => {
+      applied.push(...ids);
+    },
+    applyDelivered: () => {},
   };
 
   return {
     ctx,
     emitted,
     visited,
+    applied,
     pos: () => position,
     waits: () => waitCount,
   };
@@ -111,6 +132,25 @@ describe("GoTo — arrival", () => {
     const sim = createSim({ map: gridMap(3, 3), start: { x: 1, y: 1 } });
     await new GoTo(sim.ctx).execute(goto({ x: 1, y: 1 }));
     expect(sim.emitted).toEqual([]);
+  });
+});
+
+describe("GoTo — opportunistic pickup", () => {
+  it("grabs a free parcel it walks over en route to the target", async () => {
+    const sim = createSim({
+      map: gridMap(4, 1),
+      start: { x: 0, y: 0 },
+      parcels: [{ x: 2, y: 0, id: "p9" }], // sits on the path to (3,0)
+    });
+    await new GoTo(sim.ctx).execute(goto({ x: 3, y: 0 }));
+    expect(sim.pos()).toEqual({ x: 3, y: 0 });
+    expect(sim.applied).toContain("p9");
+  });
+
+  it("does not pick up on a tile with no free parcel", async () => {
+    const sim = createSim({ map: gridMap(4, 1), start: { x: 0, y: 0 } });
+    await new GoTo(sim.ctx).execute(goto({ x: 3, y: 0 }));
+    expect(sim.applied).toEqual([]);
   });
 });
 
@@ -173,6 +213,9 @@ describe("GoTo — failure handling", () => {
       wait: async () => {},
       carriedParcelIds: () => [],
       isParcelFree: () => true,
+      freeParcelIdsAt: () => [],
+      applyPickup: () => {},
+      applyDelivered: () => {},
     };
     await expect(
       new GoTo(ctx).execute(goto({ x: 2, y: 0 })),

@@ -59,7 +59,11 @@ export class GoPickUp extends BasePlan {
     if (this.inner === inner) this.inner = undefined;
 
     if (!this.aborted && this.generation === gen) {
-      await this.ctx.emitPickup();
+      const picked = await this.ctx.emitPickup();
+      // Optimistically reflect the pickup in beliefs straight away so the next
+      // deliberation moves on to delivery instead of re-committing to this same
+      // (now-stale) pickup until the following sensing tick arrives.
+      this.ctx.applyPickup(picked.map((p) => p.id));
     }
   }
 }

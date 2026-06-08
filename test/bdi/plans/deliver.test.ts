@@ -34,9 +34,10 @@ function makeCtx(
   map: GameMap,
   start: Pos,
   carried: string[],
-): PlanContext & { putdowns: number } {
+): PlanContext & { putdowns: number; delivered: string[] } {
   let pos = start;
   let putdowns = 0;
+  const delivered: string[] = [];
 
   const ctx = {
     map,
@@ -55,12 +56,23 @@ function makeCtx(
     wait: async () => {},
     carriedParcelIds: () => carried,
     isParcelFree: () => false,
+    freeParcelIdsAt: () => [],
+    applyPickup: () => {},
+    applyDelivered: (ids: readonly string[]) => {
+      delivered.push(...ids);
+    },
     get putdowns() {
       return putdowns;
     },
+    get delivered() {
+      return delivered;
+    },
   };
 
-  return ctx as unknown as PlanContext & { putdowns: number };
+  return ctx as unknown as PlanContext & {
+    putdowns: number;
+    delivered: string[];
+  };
 }
 
 const deliverIntent = (target: Pos): Intention => ({ kind: "deliver", target });
@@ -109,6 +121,14 @@ describe("Deliver — success path", () => {
     await plan.execute(deliverIntent({ x: 2, y: 0 }));
     expect(ctx.myPosition()).toEqual({ x: 2, y: 0 });
     expect(ctx.putdowns).toBe(1);
+  });
+
+  it("optimistically forgets the delivered stack (no stale re-commit to deliver)", async () => {
+    const map = gridMap(3, 1);
+    const ctx = makeCtx(map, { x: 0, y: 0 }, ["c1", "c2"]);
+    const plan = new Deliver(ctx);
+    await plan.execute(deliverIntent({ x: 2, y: 0 }));
+    expect(ctx.delivered).toEqual(["c1", "c2"]);
   });
 });
 

@@ -40,9 +40,10 @@ interface CtxOptions {
 function makeCtx(
   map: GameMap,
   opts: CtxOptions,
-): PlanContext & { pickups: number } {
+): PlanContext & { pickups: number; applied: string[] } {
   let pos = opts.start;
   let pickups = 0;
+  const applied: string[] = [];
 
   const ctx = {
     map,
@@ -61,12 +62,23 @@ function makeCtx(
     wait: async () => {},
     carriedParcelIds: () => [],
     isParcelFree: (_id: string) => opts.parcelFree ?? true,
+    freeParcelIdsAt: () => [],
+    applyPickup: (ids: readonly string[]) => {
+      applied.push(...ids);
+    },
+    applyDelivered: () => {},
     get pickups() {
       return pickups;
     },
+    get applied() {
+      return applied;
+    },
   };
 
-  return ctx as unknown as PlanContext & { pickups: number };
+  return ctx as unknown as PlanContext & {
+    pickups: number;
+    applied: string[];
+  };
 }
 
 const pickupIntent = (id: string, target: Pos): Intention => ({
@@ -100,6 +112,18 @@ describe("GoPickUp — success path", () => {
     await plan.execute(pickupIntent("p1", { x: 2, y: 0 }));
     expect(ctx.myPosition()).toEqual({ x: 2, y: 0 });
     expect(ctx.pickups).toBe(1);
+  });
+
+  it("optimistically applies the pickup ack to beliefs (no stale re-commit)", async () => {
+    const map = gridMap(3, 1);
+    const ctx = makeCtx(map, {
+      start: { x: 0, y: 0 },
+      parcelFree: true,
+      pickupResult: [{ id: "p1" }],
+    });
+    const plan = new GoPickUp(ctx);
+    await plan.execute(pickupIntent("p1", { x: 2, y: 0 }));
+    expect(ctx.applied).toContain("p1");
   });
 });
 
