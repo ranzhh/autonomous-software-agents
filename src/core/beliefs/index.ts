@@ -13,4 +13,9 @@
  *   - belief-set.ts     — wires listeners, revises, emits 'updated'.
  */
 
+export {
+  buildGameMap,
+  type GameMap,
+  type Pos,
+} from "./game-map.js";
 export { clockEventToMs, parseSettings, type Settings } from "./settings.js";
