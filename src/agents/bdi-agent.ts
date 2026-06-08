@@ -1,18 +1,15 @@
 /**
  * Agent A (BDI) entrypoint — `npm run bdi`.
  *
- * Phase 0: a connectivity check. It connects to the game, waits until the world
- * model is ready, logs config + map + you + the first sensing, then disconnects
- * and exits — there is no BDI control loop yet (that arrives in Phase 3). With no
- * `TOKEN_BDI` set it logs a hint and exits cleanly instead of connecting.
+ * Phase 0–1: connectivity + world-model check. Connects to the game, waits
+ * until ready, builds a BeliefSet, then logs several sensing snapshots (parcels
+ * decaying/appearing, agents coming into view) before disconnecting. There is no
+ * BDI control loop yet — that arrives in Phase 3.
+ * With no TOKEN_BDI set, logs a hint and exits cleanly.
  */
 
-import {
-  connectToGame,
-  type IOSensing,
-  loadConfig,
-  loadDotEnv,
-} from "../core/sdk/index.js";
+import { createBeliefSet } from "../core/beliefs/index.js";
+import { connectToGame, loadConfig, loadDotEnv } from "../core/sdk/index.js";
 import { createLogger } from "../core/util/index.js";
 
 loadDotEnv();
@@ -28,10 +25,6 @@ if (cfg.tokenBdi === undefined) {
     name: cfg.name,
   });
 
-  const firstSensing = new Promise<IOSensing>((resolve) => {
-    game.onSensing(resolve);
-  });
-
   try {
     await game.ready(15_000);
 
@@ -43,25 +36,52 @@ if (cfg.tokenBdi === undefined) {
     );
     log.info(`map ${map?.width}×${map?.height} · ${map?.tiles.length} tiles`);
     log.info(
-      `settings: move=${gameOptions?.player.movement_duration}ms · view=${gameOptions?.player.observation_distance} · decay=${gameOptions?.parcels.decaying_event} · spawn=${gameOptions?.parcels.generation_event}`,
+      `settings: move=${gameOptions?.player.movement_duration}ms ` +
+        `· view=${gameOptions?.player.observation_distance} ` +
+        `· decay=${gameOptions?.parcels.decaying_event} ` +
+        `· spawn=${gameOptions?.parcels.generation_event}`,
     );
 
-    const sensing = await Promise.race([
-      firstSensing,
-      new Promise<undefined>((resolve) => {
-        setTimeout(() => resolve(undefined), 5_000).unref();
-      }),
-    ]);
-    if (sensing !== undefined) {
-      log.info(
-        `first sensing: ${sensing.agents.length} agents · ${sensing.parcels.length} parcels · ${sensing.positions.length} visible tiles`,
-      );
-    } else {
-      log.warn("no sensing received within 5s");
-    }
+    const beliefs = createBeliefSet(game);
+    log.info(
+      `game-map: ${beliefs.gameMap?.deliveryTiles.length ?? 0} delivery, ` +
+        `${beliefs.gameMap?.spawnerTiles.length ?? 0} spawner tiles`,
+    );
+
+    // Log the first few sensing snapshots to verify belief revision live.
+    let snapshots = 0;
+    const MAX_SNAPSHOTS = 10;
+
+    await new Promise<void>((resolve) => {
+      const unsub = beliefs.onUpdated(() => {
+        snapshots++;
+        const free = beliefs.parcels.free();
+        const carrying = beliefs.parcels.carriedByMe();
+        const rivals = beliefs.agents.rivals();
+        const teammates = beliefs.agents.teammates();
+        log.info(
+          `sensing #${snapshots}: ` +
+            `parcels free=${free.length} carrying=${carrying.length} · ` +
+            `agents rivals=${rivals.length} teammates=${teammates.length}`,
+        );
+        if (free.length > 0) {
+          const p = free[0];
+          if (p !== undefined) {
+            const rem = beliefs.parcels.remainingReward(p.id, Date.now());
+            log.debug(
+              `  nearest free parcel: id=${p.id} reward=${rem} at (${p.x},${p.y})`,
+            );
+          }
+        }
+        if (snapshots >= MAX_SNAPSHOTS) {
+          unsub();
+          resolve();
+        }
+      });
+    });
   } catch (error) {
     log.error(
-      `could not reach ready state: ${error instanceof Error ? error.message : String(error)}`,
+      `error: ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
     game.disconnect();

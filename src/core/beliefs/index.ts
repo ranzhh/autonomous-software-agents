@@ -13,4 +13,24 @@
  *   - belief-set.ts     — wires listeners, revises, emits 'updated'.
  */
 
-export {};
+export {
+  type AgentBeliefs,
+  type AgentEntry,
+  createAgentBeliefs,
+} from "./agent-beliefs.js";
+export {
+  type BeliefSet,
+  type BeliefSetOptions,
+  createBeliefSet,
+} from "./belief-set.js";
+export {
+  buildGameMap,
+  type GameMap,
+  type Pos,
+} from "./game-map.js";
+export {
+  createParcelBeliefs,
+  type ParcelBeliefs,
+  type ParcelEntry,
+} from "./parcel-beliefs.js";
+export { clockEventToMs, parseSettings, type Settings } from "./settings.js";
