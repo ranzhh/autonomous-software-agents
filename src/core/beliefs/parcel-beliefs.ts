@@ -51,6 +51,22 @@ export interface ParcelBeliefs {
    */
   remainingReward(id: string, now: number): number | undefined;
 
+  /**
+   * Optimistically mark parcels `ids` as carried by `myId`, from an `emitPickup`
+   * ack — so the next deliberation sees the pickup immediately instead of waiting
+   * for the following sensing tick (which would otherwise let it re-commit to the
+   * same now-stale pickup). Unknown ids are ignored. The next `revise` reconciles
+   * against the server's truth.
+   */
+  applyPickup(ids: readonly string[], myId: string, now: number): void;
+
+  /**
+   * Optimistically forget parcels `ids`, from a delivery (`emitPutdown` on a
+   * delivery tile → scored & removed server-side). Mirrors `applyPickup`: stops
+   * the agent re-committing to `deliver` on stale beliefs after a delivery.
+   */
+  applyDelivered(ids: readonly string[]): void;
+
   /** Parcels not being carried by anyone (free to pick up). */
   free(): readonly ParcelEntry[];
 
@@ -97,18 +113,26 @@ export function createParcelBeliefs(decayMs: number): ParcelBeliefs {
         id: p.id,
         x: p.x,
         y: p.y,
-        carriedBy: p.carriedBy,
+        carriedBy: p.carriedBy ?? undefined,
         reward: p.reward,
         updatedAt: now,
       });
     }
 
-    // Forget parcels whose tile is currently visible but absent from sensing.
-    // This covers both free parcels (picked up / expired server-side) and
-    // carried-by-me parcels (delivered — phantom-carry guard).
+    // Forget parcels absent from this sensing snapshot.
+    //   - Carried-by-me parcels: I always perceive what I carry, so absence
+    //     means the parcel was delivered or lost. Forget unconditionally —
+    //     do NOT gate on the stored tile being visible, because a carried
+    //     parcel keeps its last-sensed position (typically the pickup tile),
+    //     which is no longer in view once I walk to a distant delivery tile.
+    //     This is the phantom-carry guard (CLAUDE.md §6): without it `deliver`
+    //     pins forever and the agent freezes on the delivery tile.
+    //   - Other parcels (free / carried-by-others): only forget when their
+    //     tile is currently visible (picked up / expired server-side); an
+    //     out-of-view parcel is kept and decays locally.
     for (const [id, entry] of store) {
       if (sensedIds.has(id)) continue;
-      if (visible.has(`${entry.x},${entry.y}`)) {
+      if (entry.carriedBy === myId || visible.has(`${entry.x},${entry.y}`)) {
         store.delete(id);
       }
     }
@@ -119,6 +143,23 @@ export function createParcelBeliefs(decayMs: number): ParcelBeliefs {
         store.delete(id);
       }
     }
+  }
+
+  function applyPickup(
+    ids: readonly string[],
+    myId: string,
+    now: number,
+  ): void {
+    myIdRef = myId;
+    for (const id of ids) {
+      const e = store.get(id);
+      if (e === undefined) continue;
+      store.set(id, { ...e, carriedBy: myId, updatedAt: now });
+    }
+  }
+
+  function applyDelivered(ids: readonly string[]): void {
+    for (const id of ids) store.delete(id);
   }
 
   function all(): readonly ParcelEntry[] {
@@ -140,5 +181,14 @@ export function createParcelBeliefs(decayMs: number): ParcelBeliefs {
     return all().filter((e) => e.carriedBy !== undefined && e.carriedBy !== id);
   }
 
-  return { revise, remainingReward, free, carriedByMe, carriedByOther, all };
+  return {
+    revise,
+    remainingReward,
+    applyPickup,
+    applyDelivered,
+    free,
+    carriedByMe,
+    carriedByOther,
+    all,
+  };
 }

@@ -107,6 +107,50 @@ describe("createParcelBeliefs — phantom-carry guard", () => {
     expect(pb.carriedByMe()).toHaveLength(0);
     expect(pb.all()).toHaveLength(0);
   });
+
+  it("drops a carried-by-me parcel even when its last-seen tile is now out of view", () => {
+    const pb = createParcelBeliefs(DECAY_MS);
+    // I pick up p1 at the spawner tile (7,14) — that is where it is last sensed.
+    pb.revise([parcel("p1", 7, 14, 8, MY_ID)], visible([7, 14]), MY_ID, 0);
+    expect(pb.carriedByMe()).toHaveLength(1);
+
+    // I carry it across the map and deliver at (18,13). The server stops sending
+    // p1, and the pickup tile (7,14) is far away — NOT in the visible set. I
+    // still always perceive what I carry, so its absence means it was delivered.
+    pb.revise([], visible([18, 13]), MY_ID, 500);
+    expect(pb.carriedByMe()).toHaveLength(0);
+    expect(pb.all()).toHaveLength(0);
+  });
+});
+
+describe("createParcelBeliefs — optimistic action updates", () => {
+  it("applyPickup marks a free parcel as carried-by-me immediately", () => {
+    const pb = createParcelBeliefs(DECAY_MS);
+    pb.revise([parcel("p1", 3, 4, 9)], visible([3, 4]), MY_ID, 0);
+    expect(pb.free()).toHaveLength(1);
+    expect(pb.carriedByMe()).toHaveLength(0);
+
+    pb.applyPickup(["p1"], MY_ID, 10);
+    expect(pb.free()).toHaveLength(0);
+    expect(pb.carriedByMe()).toHaveLength(1);
+    expect(pb.carriedByMe()[0]?.id).toBe("p1");
+  });
+
+  it("applyPickup ignores unknown ids", () => {
+    const pb = createParcelBeliefs(DECAY_MS);
+    pb.applyPickup(["ghost"], MY_ID, 0);
+    expect(pb.all()).toHaveLength(0);
+  });
+
+  it("applyDelivered forgets the given parcels", () => {
+    const pb = createParcelBeliefs(DECAY_MS);
+    pb.revise([parcel("p1", 5, 5, 8, MY_ID)], visible([5, 5]), MY_ID, 0);
+    expect(pb.carriedByMe()).toHaveLength(1);
+
+    pb.applyDelivered(["p1"]);
+    expect(pb.all()).toHaveLength(0);
+    expect(pb.carriedByMe()).toHaveLength(0);
+  });
 });
 
 describe("createParcelBeliefs — expire at 0", () => {
