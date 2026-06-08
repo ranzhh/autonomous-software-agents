@@ -19,6 +19,11 @@ export {
   createAgentBeliefs,
 } from "./agent-beliefs.js";
 export {
+  type BeliefSet,
+  type BeliefSetOptions,
+  createBeliefSet,
+} from "./belief-set.js";
+export {
   buildGameMap,
   type GameMap,
   type Pos,

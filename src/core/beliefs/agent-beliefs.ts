@@ -27,8 +27,8 @@ type RawAgent = {
   name: string;
   teamId: string;
   teamName: string;
-  x?: number;
-  y?: number;
+  x?: number | undefined;
+  y?: number | undefined;
   score: number;
   penalty: number;
 };

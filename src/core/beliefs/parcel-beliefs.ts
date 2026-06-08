@@ -26,7 +26,7 @@ type RawParcel = {
   id: string;
   x: number;
   y: number;
-  carriedBy?: string;
+  carriedBy?: string | undefined;
   reward: number;
 };
 
