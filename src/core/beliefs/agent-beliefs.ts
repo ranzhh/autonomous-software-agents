@@ -58,12 +58,12 @@ export interface AgentBeliefs {
   all(): readonly AgentEntry[];
 }
 
-/** Default TTL: forget an unseen agent after 30 s. */
-const DEFAULT_TTL_MS = 30_000;
+/** Default TTL: forget an unseen agent after 10 s. */
+const DEFAULT_TTL_MS = 10_000;
 
 /**
  * Create a mutable `AgentBeliefs` store.
- * @param agentTtlMs  How long (ms) to retain an out-of-view agent. Defaults to 30 s.
+ * @param agentTtlMs  How long (ms) to retain an out-of-view agent. Defaults to 10 s.
  */
 export function createAgentBeliefs(agentTtlMs = DEFAULT_TTL_MS): AgentBeliefs {
   const store = new Map<string, AgentEntry>();
