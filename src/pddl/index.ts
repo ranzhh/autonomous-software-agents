@@ -18,3 +18,15 @@ export {
   type TourProblem,
   type TourSettings,
 } from "./problem.js";
+export {
+  createSolver,
+  DEFAULT_LOCAL_CMD,
+  LocalSolver,
+  type LocalSolverOptions,
+  type PddlStep,
+  parseSolutionText,
+  RemoteSolver,
+  type RemoteSolverOptions,
+  type Solver,
+  type SolverConfig,
+} from "./solvers.js";

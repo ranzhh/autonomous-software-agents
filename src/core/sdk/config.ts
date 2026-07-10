@@ -18,6 +18,10 @@ export interface AgentConfig {
   readonly logLevel: LogLevel;
   readonly planner: PlannerMode;
   readonly pddlSolver: PddlSolver;
+  /** Full remote solve endpoint (PDDL_SOLVER_URL); solver default when unset. */
+  readonly pddlSolverUrl: string | undefined;
+  /** Local planner command (PDDL_LOCAL_CMD); solver default when unset. */
+  readonly pddlLocalCmd: string | undefined;
 }
 
 const DEFAULT_HOST = "http://localhost:8080";
@@ -64,5 +68,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
       ["remote", "local"] as const,
       "remote",
     ),
+    pddlSolverUrl: get("PDDL_SOLVER_URL"),
+    pddlLocalCmd: get("PDDL_LOCAL_CMD"),
   };
 }
