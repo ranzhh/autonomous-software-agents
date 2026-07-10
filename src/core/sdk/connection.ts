@@ -102,13 +102,30 @@ export function createConnection(socket: DjsSocketLike): GameConnection {
     settle();
   });
 
+  // The SDK wraps every client emit in a hardcoded 1s Socket.IO ack timeout
+  // (DjsClientSocket `this.timeout(1000).emitWithAck(...)`). On a slow server
+  // or VPN the round-trip exceeds it and the promise REJECTS with "operation
+  // has timed out" even though the move usually executed server-side (beliefs
+  // stay truthful via onYou). Treat that rejection as a blocked move (`false`)
+  // so plans take their existing wait-and-retry path instead of aborting —
+  // live runs 2026-07-09/10 showed the agent near-inert without this.
+  const isAckTimeout = (error: unknown): boolean =>
+    error instanceof Error && error.message.toLowerCase().includes("timed out");
+
   return {
     isReady,
     config: () => config,
     map: () => map,
     me: () => me,
     onSensing: (listener) => socket.onSensing(listener),
-    emitMove: (direction) => socket.emitMove(direction),
+    emitMove: async (direction) => {
+      try {
+        return await socket.emitMove(direction);
+      } catch (error) {
+        if (isAckTimeout(error)) return false;
+        throw error;
+      }
+    },
     emitPickup: () => socket.emitPickup(),
     emitPutdown: (selected) =>
       socket.emitPutdown(selected === undefined ? undefined : [...selected]),
