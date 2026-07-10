@@ -402,6 +402,40 @@ describe("PddlPlan — pre-checks and stop", () => {
     expect(fallback.executed).toHaveLength(0);
   });
 
+  it("a superseding execute() kills the older in-flight execution (no duplicates)", async () => {
+    // Regression (live 2026-07-10): execute() resets `aborted`, which used to
+    // resurrect a previously-stopped execution on the same shared instance —
+    // a burst of re-deliberations piled up N concurrent tours.
+    const map = lineMap(["3", "3", "3", "3", "3", "2"]);
+    const world = new World({ x: 0, y: 0 });
+    world.addFree("p1", 4);
+    const tourSteps: readonly PddlStep[] = [
+      { action: "move", args: ["l_0_0", "l_4_0"] },
+      { action: "pickup", args: ["p_p1", "l_4_0"] },
+      { action: "move", args: ["l_4_0", "l_5_0"] },
+      { action: "deliver", args: ["p_p1", "l_5_0"] },
+    ];
+    const solver = new FakeSolver([tourSteps, tourSteps]);
+    const { plan } = makePlan(makeCtx(map, world), solver);
+
+    // Preempt after the first real move: stop, then immediately re-execute —
+    // exactly what the BDI loop does on an intention switch.
+    let second: Promise<void> | undefined;
+    world.onMove = () => {
+      if (second === undefined) {
+        plan.stop();
+        second = plan.execute(pickupIntent("p1", { x: 4, y: 0 }));
+      }
+    };
+    await plan.execute(pickupIntent("p1", { x: 4, y: 0 }));
+    world.onMove = undefined;
+    await second;
+
+    // Only the second execution finished the tour: one putdown, not two.
+    expect(world.putdowns).toBe(1);
+    expect(world.carried.size).toBe(0);
+  });
+
   it("is reusable after a prior stop()", async () => {
     const map = lineMap(["3", "3", "2"]);
     const world = new World({ x: 0, y: 0 });

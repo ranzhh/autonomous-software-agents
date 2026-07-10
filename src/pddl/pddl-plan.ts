@@ -54,6 +54,11 @@ export class PddlPlan extends BasePlan {
   private readonly fallback: PlanLibrary;
   private readonly maxReplans: number;
   private aborted = false;
+  // Bumped by every execute(): an older in-flight execution on this shared
+  // instance sees the mismatch and dies at its next check, so re-selecting
+  // the plan can never resurrect it into a concurrent duplicate (execute()
+  // resets `aborted`, which alone would un-stop the old run).
+  private generation = 0;
   private inner: GoTo | undefined;
   private activeFallback: BasePlan | undefined;
 
@@ -77,8 +82,14 @@ export class PddlPlan extends BasePlan {
     this.activeFallback?.stop();
   }
 
+  /** True when this execution was stopped or superseded by a newer execute(). */
+  private isStale(gen: number): boolean {
+    return this.aborted || gen !== this.generation;
+  }
+
   override async execute(intention: Intention): Promise<void> {
     this.aborted = false; // reset so the instance is reusable after stop()
+    const gen = ++this.generation;
 
     if (intention.kind !== "pickup" && intention.kind !== "deliver") {
       throw new PlanFailedError(
@@ -108,11 +119,11 @@ export class PddlPlan extends BasePlan {
 
     const maxRounds = 1 + this.maxReplans;
     for (let round = 1; round <= maxRounds; round++) {
-      if (this.aborted) return;
+      if (this.isStale(gen)) return;
 
-      const tour = await this.buildProblem(mustInclude);
+      const tour = await this.buildProblem(mustInclude, gen);
       if (tour === null) {
-        return this.runFallback(intention, "no plannable tour");
+        return this.runFallback(intention, "no plannable tour", gen);
       }
 
       let solved: readonly PddlStep[] | null;
@@ -121,11 +132,11 @@ export class PddlPlan extends BasePlan {
         solved = await this.solver.solve(PDDL_DOMAIN, tour.problemText);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return this.runFallback(intention, `solver failed: ${message}`);
+        return this.runFallback(intention, `solver failed: ${message}`, gen);
       }
-      if (this.aborted) return;
+      if (this.isStale(gen)) return;
       if (solved === null) {
-        return this.runFallback(intention, "solver found no plan");
+        return this.runFallback(intention, "solver found no plan", gen);
       }
 
       let steps: TourStep[];
@@ -134,7 +145,7 @@ export class PddlPlan extends BasePlan {
       } catch (error) {
         const message =
           error instanceof PlannerError ? error.message : String(error);
-        return this.runFallback(intention, `unusable plan: ${message}`);
+        return this.runFallback(intention, `unusable plan: ${message}`, gen);
       }
 
       log.info(
@@ -142,15 +153,15 @@ export class PddlPlan extends BasePlan {
           `in ${Date.now() - startedAt}ms (parcels: ${tour.candidateParcelIds.join(",") || "carried-only"})`,
       );
 
-      const completed = await this.runTour(steps);
-      if (this.aborted) return;
+      const completed = await this.runTour(steps, gen);
+      if (this.isStale(gen)) return;
       if (completed) return;
       if (round < maxRounds) {
         log.info(`tour invalidated — replanning (${round}/${this.maxReplans})`);
       }
     }
 
-    return this.runFallback(intention, "replans exhausted");
+    return this.runFallback(intention, "replans exhausted", gen);
   }
 
   /**
@@ -159,9 +170,10 @@ export class PddlPlan extends BasePlan {
    */
   private async buildProblem(
     mustInclude: string | undefined,
+    gen: number,
   ): Promise<TourProblem | null> {
     for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
-      if (this.aborted) return null;
+      if (this.isStale(gen)) return null;
       const myPos = this.ctx.myExactPosition();
       if (myPos === undefined) return null;
       if (Number.isInteger(myPos.x) && Number.isInteger(myPos.y)) {
@@ -188,9 +200,12 @@ export class PddlPlan extends BasePlan {
    * was invalidated (failed leg / vanished parcels / nothing to put down) and
    * a replan should be attempted.
    */
-  private async runTour(steps: readonly TourStep[]): Promise<boolean> {
+  private async runTour(
+    steps: readonly TourStep[],
+    gen: number,
+  ): Promise<boolean> {
     for (const step of steps) {
-      if (this.aborted) return true; // stop() — resolve early, no replan
+      if (this.isStale(gen)) return true; // stopped/superseded — resolve early
       switch (step.kind) {
         case "goto": {
           const inner = new GoTo(this.ctx);
@@ -218,6 +233,7 @@ export class PddlPlan extends BasePlan {
           if (step.parcelIds.some((id) => this.ctx.isParcelFree(id))) {
             const picked = await this.ctx.emitPickup();
             this.ctx.applyPickup(picked.map((p) => p.id));
+            log.info(`picked up [${picked.map((p) => p.id).join(",")}]`);
             break;
           }
           const carried = new Set(this.ctx.carriedParcelIds());
@@ -235,6 +251,7 @@ export class PddlPlan extends BasePlan {
           }
           await this.ctx.emitPutdown();
           this.ctx.applyDelivered(carried);
+          log.info(`delivered [${carried.join(",")}]`);
           break;
         }
       }
@@ -246,8 +263,9 @@ export class PddlPlan extends BasePlan {
   private async runFallback(
     intention: Intention,
     reason: string,
+    gen: number,
   ): Promise<void> {
-    if (this.aborted) return;
+    if (this.isStale(gen)) return;
     log.warn(`falling back to reactive plan: ${reason}`);
     const plan = this.fallback.select(intention);
     if (plan === undefined) {
