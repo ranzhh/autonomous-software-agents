@@ -104,11 +104,14 @@ export function createConnection(socket: DjsSocketLike): GameConnection {
 
   // The SDK wraps every client emit in a hardcoded 1s Socket.IO ack timeout
   // (DjsClientSocket `this.timeout(1000).emitWithAck(...)`). On a slow server
-  // or VPN the round-trip exceeds it and the promise REJECTS with "operation
-  // has timed out" even though the move usually executed server-side (beliefs
-  // stay truthful via onYou). Treat that rejection as a blocked move (`false`)
-  // so plans take their existing wait-and-retry path instead of aborting —
-  // live runs 2026-07-09/10 showed the agent near-inert without this.
+  // or VPN (measured 1.5–2.4s RTT, 2026-07-10) the round-trip exceeds it and
+  // the promise REJECTS with "operation has timed out" even though the action
+  // usually executed server-side (beliefs stay truthful via onYou/sensing).
+  // Map the rejection to the action's "nothing observed" result — `false` for
+  // a move (plans take their existing wait-and-retry path), `[]` for
+  // pickup/putdown (the next sensing tick reconciles what was actually
+  // picked/dropped) — instead of aborting the whole plan; live runs
+  // 2026-07-09/10 showed the agent near-inert without this.
   const isAckTimeout = (error: unknown): boolean =>
     error instanceof Error && error.message.toLowerCase().includes("timed out");
 
@@ -126,9 +129,24 @@ export function createConnection(socket: DjsSocketLike): GameConnection {
         throw error;
       }
     },
-    emitPickup: () => socket.emitPickup(),
-    emitPutdown: (selected) =>
-      socket.emitPutdown(selected === undefined ? undefined : [...selected]),
+    emitPickup: async () => {
+      try {
+        return await socket.emitPickup();
+      } catch (error) {
+        if (isAckTimeout(error)) return [];
+        throw error;
+      }
+    },
+    emitPutdown: async (selected) => {
+      try {
+        return await socket.emitPutdown(
+          selected === undefined ? undefined : [...selected],
+        );
+      } catch (error) {
+        if (isAckTimeout(error)) return [];
+        throw error;
+      }
+    },
     disconnect: () => socket.disconnect(),
     ready: (timeoutMs) =>
       new Promise<void>((resolve, reject) => {

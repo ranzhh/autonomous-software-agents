@@ -22,6 +22,7 @@ class MockSocket implements DjsSocketLike {
 
   // Scripted action results + captured arguments for the emit* delegation tests.
   moveError: Error | undefined;
+  actionError: Error | undefined;
   moveResult: Position | false = { x: 0, y: 0 };
   pickupResult: PickedParcel[] = [];
   putdownResult: PickedParcel[] = [];
@@ -48,10 +49,12 @@ class MockSocket implements DjsSocketLike {
     return this.moveResult;
   }
   async emitPickup(): Promise<PickedParcel[]> {
+    if (this.actionError !== undefined) throw this.actionError;
     return this.pickupResult;
   }
   async emitPutdown(selected?: string[]): Promise<PickedParcel[]> {
     this.lastPutdown = selected;
+    if (this.actionError !== undefined) throw this.actionError;
     return this.putdownResult;
   }
   disconnect(): void {
@@ -198,6 +201,22 @@ describe("createConnection", () => {
     sock.moveError = new Error("socket closed");
     const conn = createConnection(sock);
     await expect(conn.emitMove("up")).rejects.toThrow("socket closed");
+  });
+
+  it("emitPickup/emitPutdown map the ack-timeout to [] (sensing reconciles)", async () => {
+    const sock = new MockSocket();
+    sock.actionError = new Error("operation has timed out");
+    const conn = createConnection(sock);
+    await expect(conn.emitPickup()).resolves.toEqual([]);
+    await expect(conn.emitPutdown()).resolves.toEqual([]);
+  });
+
+  it("emitPickup/emitPutdown rethrow non-timeout rejections", async () => {
+    const sock = new MockSocket();
+    sock.actionError = new Error("socket closed");
+    const conn = createConnection(sock);
+    await expect(conn.emitPickup()).rejects.toThrow("socket closed");
+    await expect(conn.emitPutdown(["p1"])).rejects.toThrow("socket closed");
   });
 
   it("emitPickup surfaces the picked parcels", async () => {

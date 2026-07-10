@@ -110,10 +110,21 @@ export class GoTo extends BasePlan {
 
       const result = await this.ctx.emitMove(direction);
       if (result === false) {
-        // The tile got occupied between pathing and moving — re-path around it.
-        failures++;
+        // Either the tile got occupied between pathing and moving, or the ack
+        // timed out while the move executed server-side (CLAUDE.md §6 — the
+        // wrapper maps that rejection to `false`). Wait one move-duration for
+        // beliefs to catch up: observed progress is a successful step, only a
+        // no-progress retry counts toward giving up.
+        const before = cur;
         await this.ctx.wait(this.ctx.moveDurationMs);
         cur = this.ctx.myPosition() ?? cur;
+        if (samePos(cur, before)) {
+          failures++;
+        } else {
+          prev = before;
+          failures = 0;
+          await this.grabHere(cur);
+        }
         continue;
       }
 

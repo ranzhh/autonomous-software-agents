@@ -45,6 +45,12 @@ interface SimParams {
   readonly blocked?: ReadonlyArray<Pos>;
   /** Return true to make the n-th emitMove (1-based) resolve to `false`. */
   readonly failMove?: (attempt: number, dir: Direction) => boolean;
+  /**
+   * With `failMove`, still advance the position on a failed move — simulates
+   * the SDK ack-timeout where the move executed server-side but the wrapper
+   * reports `false` (CLAUDE.md §6).
+   */
+  readonly falseButExecutes?: boolean;
   /** Free parcels lying on the grid (collected when the agent steps on them). */
   readonly parcels?: ReadonlyArray<{ x: number; y: number; id: string }>;
 }
@@ -89,7 +95,13 @@ function createSim(params: SimParams): Sim {
     emitMove: async (dir) => {
       attempts++;
       emitted.push(dir);
-      if (params.failMove?.(attempts, dir) === true) return false;
+      if (params.failMove?.(attempts, dir) === true) {
+        if (params.falseButExecutes === true) {
+          position = applyDir(position, dir);
+          visited.push(position);
+        }
+        return false;
+      }
       position = applyDir(position, dir);
       visited.push(position);
       return position;
@@ -194,6 +206,31 @@ describe("GoTo — failure handling", () => {
     await new GoTo(sim.ctx).execute(goto({ x: 2, y: 0 }));
     expect(sim.pos()).toEqual({ x: 2, y: 0 });
     expect(sim.waits()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("treats a false move with observed progress as a successful step (ack timeout)", async () => {
+    // Every ack "fails" but the move executes server-side — with maxFailures 3
+    // and a 5-step route, only progress-detection lets the plan complete.
+    const sim = createSim({
+      map: gridMap(6, 1),
+      start: { x: 0, y: 0 },
+      failMove: () => true,
+      falseButExecutes: true,
+    });
+    await new GoTo(sim.ctx, { maxFailures: 3 }).execute(goto({ x: 5, y: 0 }));
+    expect(sim.pos()).toEqual({ x: 5, y: 0 });
+  });
+
+  it("still gives up after maxFailures consecutive no-progress moves", async () => {
+    const sim = createSim({
+      map: gridMap(3, 1),
+      start: { x: 0, y: 0 },
+      failMove: () => true, // blocked forever, no progress
+    });
+    await expect(
+      new GoTo(sim.ctx, { maxFailures: 3 }).execute(goto({ x: 2, y: 0 })),
+    ).rejects.toBeInstanceOf(PlanFailedError);
+    expect(sim.emitted.length).toBe(3);
   });
 
   it("gives up with a PlanFailedError when the target is unreachable", async () => {
