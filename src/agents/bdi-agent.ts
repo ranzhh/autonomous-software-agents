@@ -29,6 +29,7 @@ import {
 import { createBeliefSet } from "../core/beliefs/index.js";
 import { connectToGame, loadConfig, loadDotEnv } from "../core/sdk/index.js";
 import { createLogger, PlanFailedError } from "../core/util/index.js";
+import { createSolver, PddlPlan } from "../pddl/index.js";
 
 loadDotEnv();
 const cfg = loadConfig();
@@ -60,12 +61,30 @@ if (cfg.tokenBdi === undefined) {
 
     const beliefs = createBeliefSet(game);
     const ctx = createPlanContext(beliefs, game);
-    const library = new PlanLibrary([
+    // Reactive plans serve every intention on their own (PLANNER=reactive)
+    // and double as PddlPlan's fallback path (PLANNER=pddl). With PDDL on,
+    // PddlPlan is registered first so it wins selection for pickup/deliver;
+    // explore/goto stay reactive either way.
+    const reactivePlans = [
       new GoPickUp(ctx),
       new Deliver(ctx),
       new Wander(ctx),
       new GoTo(ctx),
-    ]);
+    ];
+    const library =
+      cfg.planner === "pddl"
+        ? new PlanLibrary([
+            new PddlPlan(ctx, {
+              solver: createSolver(cfg),
+              fallback: new PlanLibrary(reactivePlans),
+            }),
+            ...reactivePlans,
+          ])
+        : new PlanLibrary(reactivePlans);
+    log.info(
+      `planner: ${cfg.planner}` +
+        (cfg.planner === "pddl" ? ` (solver: ${cfg.pddlSolver})` : ""),
+    );
     const revision = new IntentionRevision();
 
     let activePlan: BasePlan | undefined;
