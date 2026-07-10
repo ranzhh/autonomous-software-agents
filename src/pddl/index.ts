@@ -9,6 +9,8 @@
  */
 
 export { PDDL_DOMAIN, PDDL_DOMAIN_NAME } from "./domain.js";
+export { PddlPlan, type PddlPlanOptions } from "./pddl-plan.js";
+export { mapSolvedPlan, type TourStep } from "./plan-steps.js";
 export {
   buildTourProblem,
   MAX_CANDIDATE_PARCELS,

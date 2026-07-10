@@ -19,9 +19,30 @@ import type {
 } from "../../core/sdk/index.js";
 import { PlanFailedError } from "../../core/util/index.js";
 
+/** Free-parcel snapshot for tour planning (position + decay inputs). */
+export interface ParcelSnapshot {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly reward: number;
+  readonly updatedAt: number;
+}
+
+/** Carried-parcel snapshot (no position — it moves with me). */
+export interface CarriedParcelSnapshot {
+  readonly id: string;
+  readonly reward: number;
+  readonly updatedAt: number;
+}
+
 export interface PlanContext {
   /** My current tile (rounded), or `undefined` if my position is unknown. */
   myPosition(): Pos | undefined;
+  /**
+   * My raw position — fractional while a move is in flight (CLAUDE.md §6) —
+   * or `undefined` if unknown. PDDL planning starts from a settled tile only.
+   */
+  myExactPosition(): { x: number; y: number } | undefined;
   /** The static map model. */
   readonly map: GameMap;
   /** True if tile `p` is currently occupied by another agent. */
@@ -34,10 +55,18 @@ export interface PlanContext {
   emitPutdown(ids?: readonly string[]): Promise<readonly PickedParcel[]>;
   /** `movement_duration` (ms) — the unit of the wait-and-retry backoff. */
   readonly moveDurationMs: number;
+  /** Parcel decay interval (ms; `+Infinity` = no decay) — for value math. */
+  readonly parcelDecayMs: number;
+  /** Current time (ms); injectable for deterministic tests. */
+  now(): number;
   /** Sleep `ms`; injectable so tests resolve instantly. */
   wait(ms: number): Promise<void>;
   /** IDs of parcels I am currently carrying (live query from beliefs). */
   carriedParcelIds(): readonly string[];
+  /** Snapshot of free parcels believed to exist (for tour planning). */
+  freeParcels(): readonly ParcelSnapshot[];
+  /** Snapshot of the parcels I carry (for tour planning). */
+  carriedParcels(): readonly CarriedParcelSnapshot[];
   /** True iff parcel `id` is believed to be free (not carried by anyone). */
   isParcelFree(id: string): boolean;
   /** IDs of free (uncarried) parcels believed to be sitting on tile `p`. */
@@ -85,6 +114,8 @@ export function createPlanContext(
   return {
     map,
     moveDurationMs,
+    parcelDecayMs: settings.parcelDecayMs,
+    now: () => Date.now(),
     wait,
     myPosition() {
       const me = beliefs.me;
@@ -92,6 +123,11 @@ export function createPlanContext(
       const { x, y } = me;
       if (x === undefined || y === undefined) return undefined;
       return { x: Math.round(x), y: Math.round(y) };
+    },
+    myExactPosition() {
+      const me = beliefs.me;
+      if (me?.x === undefined || me.y === undefined) return undefined;
+      return { x: me.x, y: me.y };
     },
     isBlocked(p) {
       for (const a of beliefs.agents.all()) {
@@ -105,6 +141,12 @@ export function createPlanContext(
     emitPutdown: (ids) => connection.emitPutdown(ids),
     carriedParcelIds() {
       return beliefs.parcels.carriedByMe().map((p) => p.id);
+    },
+    freeParcels() {
+      return beliefs.parcels.free();
+    },
+    carriedParcels() {
+      return beliefs.parcels.carriedByMe();
     },
     isParcelFree(id) {
       return beliefs.parcels.free().some((p) => p.id === id);

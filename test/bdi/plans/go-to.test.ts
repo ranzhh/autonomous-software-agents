@@ -79,7 +79,12 @@ function createSim(params: SimParams): Sim {
   const ctx: PlanContext = {
     map: params.map,
     moveDurationMs: 10,
+    parcelDecayMs: Number.POSITIVE_INFINITY,
+    now: () => 0,
     myPosition: () => position,
+    myExactPosition: () => position,
+    freeParcels: () => [],
+    carriedParcels: () => [],
     isBlocked: (p) => blockedSet.has(`${p.x},${p.y}`),
     emitMove: async (dir) => {
       attempts++;
@@ -205,7 +210,12 @@ describe("GoTo — failure handling", () => {
     const ctx: PlanContext = {
       map,
       moveDurationMs: 10,
+      parcelDecayMs: Number.POSITIVE_INFINITY,
+      now: () => 0,
       myPosition: () => undefined,
+      myExactPosition: () => undefined,
+      freeParcels: () => [],
+      carriedParcels: () => [],
       isBlocked: () => false,
       emitMove: async () => false,
       emitPickup: async () => [],
