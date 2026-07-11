@@ -259,6 +259,49 @@ describe("IntentionRevision — hysteresis", () => {
   });
 });
 
+describe("IntentionRevision — stability under value drift (live 2026-07-10)", () => {
+  it("re-adopting the identical best intention is not a switch", () => {
+    const rev = new IntentionRevision();
+    const beliefs1 = makeBeliefs({
+      myPos: { x: 4, y: 4 },
+      free: [makeParcel("p1", 1, 1, 20)],
+    });
+    rev.revise(beliefs1, NOW);
+
+    // Approaching the target: same parcel, value now much higher than at
+    // commit time. The stale-baseline bug returned this SAME intention as a
+    // "switch" every tick, restarting the running plan each time.
+    const beliefs2 = makeBeliefs({
+      myPos: { x: 2, y: 2 },
+      free: [makeParcel("p1", 1, 1, 20)],
+    });
+    expect(rev.revise(beliefs2, NOW)).toBeUndefined();
+  });
+
+  it("hysteresis compares against the commitment's refreshed value, not the commit-time one", () => {
+    const rev = new IntentionRevision();
+    // Commit to p1 from far away (low commit-time value).
+    const beliefs1 = makeBeliefs({
+      myPos: { x: 4, y: 4 },
+      free: [makeParcel("p1", 0, 0, 20)],
+    });
+    const first = rev.revise(beliefs1, NOW);
+    expect(first?.kind).toBe("pickup");
+
+    // Much closer now: p1's current value ≈ 20; a rival candidate p2 ≈ 15
+    // beats the STALE baseline ×1.2 but not the refreshed one — must not switch.
+    const beliefs2 = makeBeliefs({
+      myPos: { x: 1, y: 1 },
+      free: [makeParcel("p1", 0, 0, 20), makeParcel("p2", 3, 3, 15)],
+    });
+    expect(rev.revise(beliefs2, NOW)).toBeUndefined();
+    expect(rev.committed?.kind).toBe("pickup");
+    if (rev.committed?.kind === "pickup") {
+      expect(rev.committed.parcelId).toBe("p1");
+    }
+  });
+});
+
 describe("IntentionRevision — explore → real immediate", () => {
   it("switches from explore to pickup immediately (no hysteresis guard)", () => {
     const rev = new IntentionRevision();

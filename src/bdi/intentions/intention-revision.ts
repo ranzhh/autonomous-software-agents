@@ -35,6 +35,16 @@ export interface Candidate {
   readonly value: number;
 }
 
+/** Same goal? (kind + target tile, and the parcel for pickups). */
+function sameIntention(a: Intention, b: Intention): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.target.x !== b.target.x || a.target.y !== b.target.y) return false;
+  if (a.kind === "pickup" && b.kind === "pickup") {
+    return a.parcelId === b.parcelId;
+  }
+  return true;
+}
+
 /**
  * The hysteresis margin: switch only when `newValue > currentValue × (1 + HYSTERESIS)`.
  * Chosen conservatively at 20 % to avoid thrashing between similarly-valued parcels.
@@ -203,6 +213,21 @@ export class IntentionRevision {
       return best.intention;
     }
 
+    // --- Refresh the commitment's value to what it is worth NOW ---
+    // Hysteresis must compare against the commitment's re-computed value, not
+    // its commit-time one: values inflate as the agent approaches its target,
+    // so a stale baseline lets the (often identical) best "beat" it every
+    // belief tick — live 2026-07-10 this restarted the running plan dozens of
+    // times per second and the agent never completed a tour.
+    const refreshed = candidates.find((c) =>
+      sameIntention(c.intention, prev.intention),
+    );
+    if (refreshed !== undefined) this.current = refreshed;
+    const currentValue = refreshed?.value ?? prev.value;
+
+    // --- Re-adopting the identical intention is not a switch ---
+    if (sameIntention(best.intention, prev.intention)) return undefined;
+
     // --- Always switch from explore to a real intention ---
     if (
       prev.intention.kind === "explore" &&
@@ -213,7 +238,7 @@ export class IntentionRevision {
     }
 
     // --- Hysteresis: switch only if the new best is significantly better ---
-    const threshold = prev.value * (1 + HYSTERESIS);
+    const threshold = currentValue * (1 + HYSTERESIS);
     if (best.value > threshold && best.intention.kind !== "explore") {
       this.current = best;
       return best.intention;
