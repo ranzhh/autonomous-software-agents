@@ -203,12 +203,14 @@ describe("createConnection", () => {
     await expect(conn.emitMove("up")).rejects.toThrow("socket closed");
   });
 
-  it("emitPickup/emitPutdown map the ack-timeout to [] (sensing reconciles)", async () => {
+  it("emitPickup/emitPutdown map the ack-timeout to `undefined` (unknown, not empty)", async () => {
     const sock = new MockSocket();
     sock.actionError = new Error("operation has timed out");
     const conn = createConnection(sock);
-    await expect(conn.emitPickup()).resolves.toEqual([]);
-    await expect(conn.emitPutdown()).resolves.toEqual([]);
+    // NOT `[]`: the action probably executed, so callers must not read this as
+    // "took nothing" (that would forget parcels we are carrying). → ADR-0008.
+    await expect(conn.emitPickup()).resolves.toBeUndefined();
+    await expect(conn.emitPutdown()).resolves.toBeUndefined();
   });
 
   it("emitPickup/emitPutdown rethrow non-timeout rejections", async () => {
@@ -244,5 +246,110 @@ describe("createConnection", () => {
     const conn = createConnection(sock);
     await conn.emitPutdown();
     expect(sock.lastPutdown).toBeUndefined();
+  });
+
+  // ── Action serialization ────────────────────────────────────────────────────
+  // The server runs one ActionMutex per agent: an action issued while another
+  // is still running is rejected with a penalty and returns `false`, and at
+  // -1000 the agent is kicked. Plan preemption cannot cancel an emit already in
+  // flight, so the wrapper must queue actions rather than let them overlap.
+  // Live regression 2026-08-14: 1003 penalties and a kick within 30s.
+  describe("action serialization", () => {
+    /** A socket whose actions park until the test releases them, in order. */
+    class GatedSocket extends MockSocket {
+      readonly inFlight: string[] = [];
+      readonly completed: string[] = [];
+      private gates: Array<() => void> = [];
+
+      private gate(label: string): Promise<void> {
+        this.inFlight.push(label);
+        return new Promise<void>((resolve) => {
+          this.gates.push(() => {
+            this.completed.push(label);
+            resolve();
+          });
+        });
+      }
+
+      override async emitMove(direction: Direction): Promise<Position | false> {
+        this.lastMove = direction;
+        await this.gate(`move:${direction}`);
+        if (this.moveError !== undefined) throw this.moveError;
+        return this.moveResult;
+      }
+
+      override async emitPickup(): Promise<PickedParcel[]> {
+        await this.gate("pickup");
+        if (this.actionError !== undefined) throw this.actionError;
+        return this.pickupResult;
+      }
+
+      /** Release the oldest still-parked action. */
+      release(): void {
+        const gate = this.gates.shift();
+        if (gate === undefined) throw new Error("no action in flight");
+        gate();
+      }
+    }
+
+    const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+    it("does not start an action while another is in flight", async () => {
+      const sock = new GatedSocket();
+      const conn = createConnection(sock);
+
+      const first = conn.emitMove("up");
+      const second = conn.emitMove("down");
+      await tick();
+
+      // Only the first reached the socket; the second is queued behind it.
+      expect(sock.inFlight).toEqual(["move:up"]);
+
+      sock.release();
+      await first;
+      await tick();
+      expect(sock.inFlight).toEqual(["move:up", "move:down"]);
+
+      sock.release();
+      await second;
+      expect(sock.completed).toEqual(["move:up", "move:down"]);
+    });
+
+    it("serializes across different action kinds", async () => {
+      const sock = new GatedSocket();
+      const conn = createConnection(sock);
+
+      const move = conn.emitMove("left");
+      const pickup = conn.emitPickup();
+      await tick();
+      expect(sock.inFlight).toEqual(["move:left"]);
+
+      sock.release();
+      await move;
+      await tick();
+      sock.release();
+      await pickup;
+
+      expect(sock.completed).toEqual(["move:left", "pickup"]);
+    });
+
+    it("a failing action does not poison the queue", async () => {
+      const sock = new GatedSocket();
+      sock.moveError = new Error("socket closed");
+      const conn = createConnection(sock);
+
+      const failing = conn.emitMove("up");
+      const next = conn.emitPickup();
+      await tick();
+
+      sock.release();
+      await expect(failing).rejects.toThrow("socket closed");
+      await tick();
+
+      // The queue moved on rather than deadlocking behind the rejection.
+      expect(sock.inFlight).toEqual(["move:up", "pickup"]);
+      sock.release();
+      await expect(next).resolves.toEqual([]);
+    });
   });
 });

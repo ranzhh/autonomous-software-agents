@@ -7,6 +7,10 @@
  * seen), latest-value accessors (guarding the optional `IOAgent.x/y`), and the
  * live `sensing` stream.
  *
+ * It is also the single choke point for the two action-level server quirks —
+ * the SDK's 1s ack timeout and the server's per-agent action mutex — both
+ * handled once in `action()` below, which is the only path to the socket.
+ *
  * `createConnection` is pure over a `DjsSocketLike` so it is fully unit-testable
  * with a mock socket; `connectToGame` is the thin production adapter over
  * `DjsConnect`, exercised only by live runs.
@@ -54,10 +58,16 @@ export interface GameConnection {
   onSensing(listener: (sensing: IOSensing) => void): void;
   /** Move one tile; resolves to the new position, or `false` if the tile was occupied. */
   emitMove(direction: Direction): Promise<Position | false>;
-  /** Pick up every uncarried parcel on the current tile; resolves to the picked parcels. */
-  emitPickup(): Promise<readonly PickedParcel[]>;
-  /** Put down parcels (omit/`[]` drops ALL); resolves to the dropped parcels. */
-  emitPutdown(selected?: readonly string[]): Promise<readonly PickedParcel[]>;
+  /**
+   * Pick up every uncarried parcel on the current tile. Resolves to the picked
+   * parcels, or `undefined` when the ack was lost — the action probably still
+   * executed, so callers must treat that as "unknown", never as "took nothing".
+   */
+  emitPickup(): Promise<readonly PickedParcel[] | undefined>;
+  /** Put down parcels (omit/`[]` drops ALL). `undefined` = ack lost, as above. */
+  emitPutdown(
+    selected?: readonly string[],
+  ): Promise<readonly PickedParcel[] | undefined>;
   disconnect(): void;
 }
 
@@ -102,18 +112,52 @@ export function createConnection(socket: DjsSocketLike): GameConnection {
     settle();
   });
 
-  // The SDK wraps every client emit in a hardcoded 1s Socket.IO ack timeout
-  // (DjsClientSocket `this.timeout(1000).emitWithAck(...)`). On a slow server
-  // or VPN (measured 1.5–2.4s RTT, 2026-07-10) the round-trip exceeds it and
-  // the promise REJECTS with "operation has timed out" even though the action
-  // usually executed server-side (beliefs stay truthful via onYou/sensing).
-  // Map the rejection to the action's "nothing observed" result — `false` for
-  // a move (plans take their existing wait-and-retry path), `[]` for
-  // pickup/putdown (the next sensing tick reconciles what was actually
-  // picked/dropped) — instead of aborting the whole plan; live runs
-  // 2026-07-09/10 showed the agent near-inert without this.
+  // The SDK wraps every emit in a hardcoded 1s ack timeout
+  // (`DjsClientSocket.timeout(1000).emitWithAck`). Above ~1s RTT it rejects
+  // with "operation has timed out" even though the action usually executed
+  // server-side, so the rejection means "unknown", not "nothing happened".
   const isAckTimeout = (error: unknown): boolean =>
     error instanceof Error && error.message.toLowerCase().includes("timed out");
+
+  // The server runs ONE ActionMutex per agent (backend `deliveroo/Agent.js`):
+  // an action issued while another is still running is rejected, costs a
+  // penalty, and returns `false` — indistinguishable from "tile occupied" on
+  // our side. At -1000 the agent is kicked. Plan preemption cannot cancel an
+  // emit already in flight, so every action is queued behind the previous one.
+  // → ADR-0008; incident numbers in docs/journal.md 2026-08-14.
+  let actionChain: Promise<unknown> = Promise.resolve();
+
+  /** How long the server may still be busy after an ack we never received. */
+  function settleAfterLostAck(): Promise<void> {
+    const ms = config?.GAME?.player?.movement_duration ?? 0;
+    if (ms <= 0) return Promise.resolve();
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * The only path to the socket: issue `run` once the previous action has
+   * settled, and map a lost ack to `onAckTimeout`. Both server quirks live
+   * here so a newly added action (say/ask/shout) cannot forget either one.
+   */
+  function action<T>(run: () => Promise<T>, onAckTimeout: T): Promise<T> {
+    const attempt = async (): Promise<T> => {
+      try {
+        return await run();
+      } catch (error) {
+        if (!isAckTimeout(error)) throw error;
+        // The action is probably still running server-side; releasing the
+        // chain now would issue the next one into a held mutex.
+        await settleAfterLostAck();
+        return onAckTimeout;
+      }
+    };
+    // `.then(attempt, attempt)` runs regardless of how the previous settled;
+    // the chain is kept rejection-free and value-free so it neither poisons
+    // later actions nor retains the last result.
+    const issued = actionChain.then(attempt, attempt);
+    actionChain = issued.catch(() => undefined);
+    return issued;
+  }
 
   return {
     isReady,
@@ -121,32 +165,23 @@ export function createConnection(socket: DjsSocketLike): GameConnection {
     map: () => map,
     me: () => me,
     onSensing: (listener) => socket.onSensing(listener),
-    emitMove: async (direction) => {
-      try {
-        return await socket.emitMove(direction);
-      } catch (error) {
-        if (isAckTimeout(error)) return false;
-        throw error;
-      }
-    },
-    emitPickup: async () => {
-      try {
-        return await socket.emitPickup();
-      } catch (error) {
-        if (isAckTimeout(error)) return [];
-        throw error;
-      }
-    },
-    emitPutdown: async (selected) => {
-      try {
-        return await socket.emitPutdown(
-          selected === undefined ? undefined : [...selected],
-        );
-      } catch (error) {
-        if (isAckTimeout(error)) return [];
-        throw error;
-      }
-    },
+    // A timed-out move reads as `false`, the same as a blocked one — plans
+    // already wait-and-retry on that, and `GoTo` counts observed progress.
+    emitMove: (direction) =>
+      action<Position | false>(() => socket.emitMove(direction), false),
+    emitPickup: () =>
+      action<readonly PickedParcel[] | undefined>(
+        () => socket.emitPickup(),
+        undefined,
+      ),
+    emitPutdown: (selected) =>
+      action<readonly PickedParcel[] | undefined>(
+        () =>
+          socket.emitPutdown(
+            selected === undefined ? undefined : [...selected],
+          ),
+        undefined,
+      ),
     disconnect: () => socket.disconnect(),
     ready: (timeoutMs) =>
       new Promise<void>((resolve, reject) => {
