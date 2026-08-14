@@ -1,34 +1,25 @@
 /**
  * Agent A (BDI) entrypoint — `npm run bdi`.
  *
- * Full BDI control loop (Phase 3):
- *   sense → revise beliefs → IntentionRevision.revise → select plan → execute
- *
- * On each `onUpdated` event (post-sensing belief revision):
- *   1. Ask IntentionRevision whether to switch intentions.
- *   2. If yes: stop the in-flight plan (cooperative abort), then start the new
- *      one asynchronously.
- *   3. On PlanFailedError: call revision.reset() so re-deliberation starts
- *      from scratch rather than being suppressed by hysteresis.
- *
- * Concurrency model: only one plan executes at a time. `onUpdated` callbacks
- * are synchronous and fast (just revise → maybe stop); the async plan execution
- * runs in the background and is replaced by the next intention when needed.
+ * Wiring only: connect → build beliefs → assemble the plan library (reactive,
+ * or PDDL-first with the reactive library as its fallback) → hand both to the
+ * shared `ControlLoop`, which owns the sense→deliberate→execute cycle.
  */
 
+import { createControlLoop } from "../bdi/control-loop/index.js";
 import { IntentionRevision } from "../bdi/intentions/index.js";
-import type { BasePlan } from "../bdi/plans/index.js";
 import {
   createPlanContext,
   Deliver,
   GoPickUp,
   GoTo,
+  type PlanFactory,
   PlanLibrary,
   Wander,
 } from "../bdi/plans/index.js";
 import { createBeliefSet } from "../core/beliefs/index.js";
 import { connectToGame, loadConfig, loadDotEnv } from "../core/sdk/index.js";
-import { createLogger, PlanFailedError } from "../core/util/index.js";
+import { createLogger } from "../core/util/index.js";
 import { createSolver, PddlPlan } from "../pddl/index.js";
 
 loadDotEnv();
@@ -64,102 +55,35 @@ if (cfg.tokenBdi === undefined) {
     // Reactive plans serve every intention on their own (PLANNER=reactive)
     // and double as PddlPlan's fallback path (PLANNER=pddl). With PDDL on,
     // PddlPlan is registered first so it wins selection for pickup/deliver;
-    // explore/goto stay reactive either way.
-    const reactivePlans = [
-      new GoPickUp(ctx),
-      new Deliver(ctx),
-      new Wander(ctx),
-      new GoTo(ctx),
+    // explore/goto stay reactive either way. The library builds a fresh
+    // instance per selection, so these are factories.
+    const reactivePlans: PlanFactory[] = [
+      () => new GoPickUp(ctx),
+      () => new Deliver(ctx),
+      () => new Wander(ctx),
+      () => new GoTo(ctx),
     ];
-    const library =
-      cfg.planner === "pddl"
-        ? new PlanLibrary([
-            new PddlPlan(ctx, {
-              solver: createSolver(cfg),
-              fallback: new PlanLibrary(reactivePlans),
-            }),
-            ...reactivePlans,
-          ])
-        : new PlanLibrary(reactivePlans);
+    let library = new PlanLibrary(reactivePlans);
+    if (cfg.planner === "pddl") {
+      const solver = createSolver(cfg);
+      const fallback = library;
+      library = new PlanLibrary([
+        () => new PddlPlan(ctx, { solver, fallback }),
+        ...reactivePlans,
+      ]);
+    }
     log.info(
       `planner: ${cfg.planner}` +
         (cfg.planner === "pddl" ? ` (solver: ${cfg.pddlSolver})` : ""),
     );
-    const revision = new IntentionRevision();
 
-    let activePlan: BasePlan | undefined;
-    let activeDone: Promise<void> = Promise.resolve();
-
-    async function runPlan(
-      plan: BasePlan,
-      intention: Parameters<BasePlan["execute"]>[0],
-    ): Promise<void> {
-      try {
-        await plan.execute(intention);
-        // Only reset + log when this plan is still the active one (not already
-        // replaced by a preempting intention). Reset lets the next deliberation
-        // pick a fresh intention rather than being blocked by hysteresis on the
-        // now-completed one (e.g. explore→explore after Wander reaches its target).
-        if (activePlan === plan) {
-          log.debug(`plan ${plan.name} completed`);
-          revision.reset();
-        }
-      } catch (err) {
-        if (err instanceof PlanFailedError) {
-          log.warn(`plan ${plan.name} failed: ${err.message}`);
-        } else {
-          log.error(
-            `plan ${plan.name} threw unexpectedly: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-        revision.reset();
-      } finally {
-        if (activePlan === plan) {
-          activePlan = undefined;
-          // Re-deliberate immediately rather than waiting for the next sensing
-          // event. After a delivery the server often sends no sensing event
-          // (agent is stationary, nothing visible changes), so without this the
-          // agent idles indefinitely at the delivery tile instead of exploring.
-          deliberateAndAct();
-        }
-      }
-    }
-
-    function deliberateAndAct(): void {
-      const now = Date.now();
-      const newIntention = revision.revise(beliefs, now);
-      if (newIntention === undefined) return; // keep current plan
-
-      log.info(
-        `intention → ${newIntention.kind}` +
-          ("parcelId" in newIntention
-            ? ` (parcel ${newIntention.parcelId})`
-            : "") +
-          ` @ (${newIntention.target.x},${newIntention.target.y})`,
-      );
-
-      // Stop the current plan cooperatively.
-      activePlan?.stop();
-
-      const plan = library.select(newIntention);
-      if (plan === undefined) {
-        log.warn(
-          `no plan applicable to ${newIntention.kind} — re-deliberating`,
-        );
-        revision.reset();
-        return;
-      }
-
-      activePlan = plan;
-      activeDone = runPlan(plan, newIntention);
-    }
-
-    beliefs.onUpdated(() => deliberateAndAct());
-
-    // Bootstrap: trigger deliberation immediately so the agent doesn't wait for
-    // the first sensing event (on some server configs sensing fires only after
-    // the first action, which would create a deadlock).
-    deliberateAndAct();
+    const loop = createControlLoop({
+      beliefs,
+      library,
+      revision: new IntentionRevision(),
+      logger: log,
+    });
+    loop.start();
 
     log.info("BDI loop running — Ctrl-C to stop");
 
@@ -168,8 +92,7 @@ if (cfg.tokenBdi === undefined) {
       process.once("SIGINT", resolve);
     });
 
-    activePlan?.stop();
-    await activeDone;
+    await loop.stop();
   } catch (error) {
     log.error(
       `fatal: ${error instanceof Error ? error.message : String(error)}`,
