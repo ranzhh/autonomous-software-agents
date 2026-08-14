@@ -88,38 +88,31 @@ function makeCtx(map: GameMap, world: World): PlanContext {
       world.onMove?.();
       return { x: world.pos.x, y: world.pos.y };
     },
-    emitPickup: async () =>
-      [...world.free.values()]
-        .filter((p) => p.x === world.pos.x && p.y === world.pos.y)
-        .map((p) => ({ id: p.id })),
-    emitPutdown: async () => {
+    // Mirrors the real PlanContext: takes every free parcel on my tile and
+    // moves it into the carried set. Ack interpretation is tested separately.
+    pickUpHere: async () => {
+      const here = [...world.free.values()].filter(
+        (p) => p.x === world.pos.x && p.y === world.pos.y,
+      );
+      for (const p of here) {
+        world.free.delete(p.id);
+        world.carried.set(p.id, {
+          id: p.id,
+          reward: p.reward,
+          updatedAt: p.updatedAt,
+        });
+      }
+      return here.map((p) => p.id);
+    },
+    putDownAll: async () => {
+      const dropped = [...world.carried.keys()];
+      if (dropped.length === 0) return [];
       world.putdowns++;
-      const out = [...world.carried.values()].map((p) => ({ id: p.id }));
       world.carried.clear();
-      return out;
+      return dropped;
     },
     carriedParcelIds: () => [...world.carried.keys()],
     isParcelFree: (id) => world.free.has(id),
-    freeParcelIdsAt: (p) =>
-      [...world.free.values()]
-        .filter((f) => f.x === p.x && f.y === p.y)
-        .map((f) => f.id),
-    applyPickup: (ids) => {
-      for (const id of ids) {
-        const p = world.free.get(id);
-        if (p !== undefined) {
-          world.free.delete(id);
-          world.carried.set(id, {
-            id,
-            reward: p.reward,
-            updatedAt: p.updatedAt,
-          });
-        }
-      }
-    },
-    applyDelivered: (ids) => {
-      for (const id of ids) world.carried.delete(id);
-    },
     freeParcels: () => [...world.free.values()],
     carriedParcels: () => [...world.carried.values()],
   };
@@ -170,7 +163,7 @@ function makePlan(
   const fallback = new RecordingFallback(ctx);
   const plan = new PddlPlan(ctx, {
     solver,
-    fallback: new PlanLibrary([fallback]),
+    fallback: new PlanLibrary([() => fallback]),
   });
   return { plan, fallback };
 }
@@ -402,10 +395,11 @@ describe("PddlPlan — pre-checks and stop", () => {
     expect(fallback.executed).toHaveLength(0);
   });
 
-  it("a superseding execute() kills the older in-flight execution (no duplicates)", async () => {
-    // Regression (live 2026-07-10): execute() resets `aborted`, which used to
-    // resurrect a previously-stopped execution on the same shared instance —
-    // a burst of re-deliberations piled up N concurrent tours.
+  it("a stopped instance stays dead while a fresh one completes the tour", async () => {
+    // Regression (live 2026-07-10): `execute()` used to reset `aborted`, so a
+    // preempted tour was resurrected on the same shared instance and a burst of
+    // re-deliberations piled up N concurrent tours. `PlanLibrary` now hands out
+    // a fresh instance per selection, so `stop()` can stay terminal.
     const map = lineMap(["3", "3", "3", "3", "3", "2"]);
     const world = new World({ x: 0, y: 0 });
     world.addFree("p1", 4);
@@ -416,39 +410,46 @@ describe("PddlPlan — pre-checks and stop", () => {
       { action: "deliver", args: ["p_p1", "l_5_0"] },
     ];
     const solver = new FakeSolver([tourSteps, tourSteps]);
-    const { plan } = makePlan(makeCtx(map, world), solver);
+    const ctx = makeCtx(map, world);
+    const { plan } = makePlan(ctx, solver);
 
-    // Preempt after the first real move: stop, then immediately re-execute —
-    // exactly what the BDI loop does on an intention switch.
+    // Preempt after the first real move, exactly as the BDI loop does: stop the
+    // running plan and start the replacement the library just built.
     let second: Promise<void> | undefined;
     world.onMove = () => {
       if (second === undefined) {
         plan.stop();
-        second = plan.execute(pickupIntent("p1", { x: 4, y: 0 }));
+        const { plan: fresh } = makePlan(ctx, solver);
+        second = fresh.execute(pickupIntent("p1", { x: 4, y: 0 }));
       }
     };
     await plan.execute(pickupIntent("p1", { x: 4, y: 0 }));
     world.onMove = undefined;
     await second;
 
-    // Only the second execution finished the tour: one putdown, not two.
+    // Only the replacement finished the tour: one putdown, not two.
     expect(world.putdowns).toBe(1);
     expect(world.carried.size).toBe(0);
   });
 
-  it("is reusable after a prior stop()", async () => {
+  it("does nothing when executed after stop() (stop is terminal)", async () => {
     const map = lineMap(["3", "3", "2"]);
     const world = new World({ x: 0, y: 0 });
     world.addFree("p1", 1);
-    const solver = new FakeSolver([
-      [
-        { action: "move", args: ["l_0_0", "l_1_0"] },
-        { action: "pickup", args: ["p_p1", "l_1_0"] },
-      ],
-    ]);
-    const { plan } = makePlan(makeCtx(map, world), solver);
+    const steps: readonly PddlStep[] = [
+      { action: "move", args: ["l_0_0", "l_1_0"] },
+      { action: "pickup", args: ["p_p1", "l_1_0"] },
+    ];
+    const ctx = makeCtx(map, world);
+    const { plan } = makePlan(ctx, new FakeSolver([steps]));
     plan.stop();
+
     await plan.execute(pickupIntent("p1", { x: 1, y: 0 }));
+    expect(world.carried.has("p1")).toBe(false);
+
+    // The library would have handed the loop a fresh instance, which runs.
+    const { plan: fresh } = makePlan(ctx, new FakeSolver([steps]));
+    await fresh.execute(pickupIntent("p1", { x: 1, y: 0 }));
     expect(world.carried.has("p1")).toBe(true);
   });
 });

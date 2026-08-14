@@ -8,6 +8,7 @@ import {
 } from "../../../src/core/beliefs/index.js";
 import type { Direction, IOTile } from "../../../src/core/sdk/index.js";
 import { PlanFailedError } from "../../../src/core/util/index.js";
+import { applyDir, stubPlanContext } from "../../helpers/plan-context.js";
 
 /** Build a width×height all-walkable map ("3") minus the given wall tiles ("0"). */
 function gridMap(
@@ -23,19 +24,6 @@ function gridMap(
     }
   }
   return buildGameMap(width, height, tiles);
-}
-
-function applyDir(p: Pos, dir: Direction): Pos {
-  switch (dir) {
-    case "up":
-      return { x: p.x, y: p.y + 1 };
-    case "down":
-      return { x: p.x, y: p.y - 1 };
-    case "left":
-      return { x: p.x - 1, y: p.y };
-    case "right":
-      return { x: p.x + 1, y: p.y };
-  }
 }
 
 interface SimParams {
@@ -106,23 +94,22 @@ function createSim(params: SimParams): Sim {
       visited.push(position);
       return position;
     },
-    emitPickup: async () => {
+    // How the ack is interpreted is `PlanContext`'s job (see its own tests);
+    // here it just yields whatever the tile holds, so GoTo's contract — call it
+    // on every tile stepped onto — is what gets asserted.
+    pickUpHere: async () => {
       const key = `${position.x},${position.y}`;
       const ids = parcelTiles.get(key) ?? [];
       parcelTiles.delete(key);
-      return ids.map((id) => ({ id }));
+      applied.push(...ids);
+      return ids;
     },
-    emitPutdown: async () => [],
+    putDownAll: async () => [],
     wait: async () => {
       waitCount++;
     },
     carriedParcelIds: () => [],
     isParcelFree: () => true,
-    freeParcelIdsAt: (p) => parcelTiles.get(`${p.x},${p.y}`) ?? [],
-    applyPickup: (ids) => {
-      applied.push(...ids);
-    },
-    applyDelivered: () => {},
   };
 
   return {
@@ -244,40 +231,29 @@ describe("GoTo — failure handling", () => {
 
   it("throws when the current position is unknown", async () => {
     const map = gridMap(3, 1);
-    const ctx: PlanContext = {
+    const ctx = stubPlanContext({
       map,
-      moveDurationMs: 10,
-      parcelDecayMs: Number.POSITIVE_INFINITY,
-      now: () => 0,
       myPosition: () => undefined,
       myExactPosition: () => undefined,
-      freeParcels: () => [],
-      carriedParcels: () => [],
-      isBlocked: () => false,
-      emitMove: async () => false,
-      emitPickup: async () => [],
-      emitPutdown: async () => [],
-      wait: async () => {},
-      carriedParcelIds: () => [],
-      isParcelFree: () => true,
-      freeParcelIdsAt: () => [],
-      applyPickup: () => {},
-      applyDelivered: () => {},
-    };
+    });
     await expect(
       new GoTo(ctx).execute(goto({ x: 2, y: 0 })),
     ).rejects.toBeInstanceOf(PlanFailedError);
   });
 });
 
-describe("GoTo — reuse after stop", () => {
-  it("navigates normally when called after a prior stop() (instance reuse)", async () => {
+describe("GoTo — stop() is terminal", () => {
+  it("does not move after stop(); a retry needs a fresh instance", async () => {
     const sim = createSim({ map: gridMap(5, 1), start: { x: 0, y: 0 } });
     const plan = new GoTo(sim.ctx);
-    // Simulate prior stop (e.g. from PlanLibrary singleton reuse).
     plan.stop();
-    // execute() resets abort state — plan should proceed normally.
+
     await plan.execute(goto({ x: 4, y: 0 }));
+    expect(sim.pos()).toEqual({ x: 0, y: 0 });
+    expect(sim.emitted).toEqual([]);
+
+    // `PlanLibrary` hands out a fresh instance per selection, which navigates.
+    await new GoTo(sim.ctx).execute(goto({ x: 4, y: 0 }));
     expect(sim.pos()).toEqual({ x: 4, y: 0 });
   });
 });

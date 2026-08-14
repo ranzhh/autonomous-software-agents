@@ -28,17 +28,27 @@ describe("PlanLibrary.select", () => {
     const a = new StubPlan("A", false);
     const b = new StubPlan("B", true);
     const c = new StubPlan("C", true);
-    const lib = new PlanLibrary([a, b, c]);
+    const lib = new PlanLibrary([() => a, () => b, () => c]);
     expect(lib.select(goto())?.name).toBe("B");
   });
 
   it("returns undefined when no plan applies", () => {
-    const lib = new PlanLibrary([new StubPlan("A", false)]);
+    const lib = new PlanLibrary([() => new StubPlan("A", false)]);
     expect(lib.select(goto())).toBeUndefined();
   });
 
   it("returns undefined for an empty library", () => {
     const lib = new PlanLibrary([]);
     expect(lib.select(goto())).toBeUndefined();
+  });
+
+  /**
+   * Per-execution state (`aborted`, the inner `GoTo`) lives on the plan, so a
+   * shared instance would let a preempted execution and its replacement collide.
+   * → ADR-0008.
+   */
+  it("builds a fresh instance on every selection", () => {
+    const lib = new PlanLibrary([() => new StubPlan("A", true)]);
+    expect(lib.select(goto())).not.toBe(lib.select(goto()));
   });
 });

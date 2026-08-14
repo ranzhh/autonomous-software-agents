@@ -147,7 +147,7 @@ describe("createParcelBeliefs — optimistic action updates", () => {
     pb.revise([parcel("p1", 5, 5, 8, MY_ID)], visible([5, 5]), MY_ID, 0);
     expect(pb.carriedByMe()).toHaveLength(1);
 
-    pb.applyDelivered(["p1"]);
+    pb.forget(["p1"]);
     expect(pb.all()).toHaveLength(0);
     expect(pb.carriedByMe()).toHaveLength(0);
   });
@@ -210,5 +210,45 @@ describe("createParcelBeliefs — accessors", () => {
   it("carriedByMe() returns empty before first revise", () => {
     const pb = createParcelBeliefs(DECAY_MS);
     expect(pb.carriedByMe()).toHaveLength(0);
+  });
+});
+
+describe("ParcelBeliefs.forget", () => {
+  it("drops the named parcels and leaves the rest", () => {
+    const beliefs = createParcelBeliefs(1000);
+    beliefs.revise(
+      [
+        { id: "p1", x: 1, y: 1, reward: 10 },
+        { id: "p2", x: 2, y: 2, reward: 10 },
+      ],
+      new Set(["1,1", "2,2"]),
+      "me",
+      0,
+    );
+
+    beliefs.forget(["p1"]);
+
+    expect(beliefs.all().map((p) => p.id)).toEqual(["p2"]);
+  });
+
+  it("ignores unknown ids", () => {
+    const beliefs = createParcelBeliefs(1000);
+    beliefs.revise([{ id: "p1", x: 1, y: 1, reward: 10 }], new Set(), "me", 0);
+
+    expect(() => beliefs.forget(["nope"])).not.toThrow();
+    expect(beliefs.all()).toHaveLength(1);
+  });
+
+  it("lets sensing re-add a forgotten parcel that does exist", () => {
+    const beliefs = createParcelBeliefs(1000);
+    const sensed = [{ id: "p1", x: 1, y: 1, reward: 10 }];
+    beliefs.revise(sensed, new Set(["1,1"]), "me", 0);
+
+    beliefs.forget(["p1"]);
+    expect(beliefs.all()).toHaveLength(0);
+
+    // Sensing remains the source of truth — the forget is only a stop-gap.
+    beliefs.revise(sensed, new Set(["1,1"]), "me", 0);
+    expect(beliefs.free().map((p) => p.id)).toEqual(["p1"]);
   });
 });

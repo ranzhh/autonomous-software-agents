@@ -1,110 +1,68 @@
 import { describe, expect, it } from "vitest";
 import type { Intention } from "../../../src/bdi/intentions/index.js";
-import type { PlanContext } from "../../../src/bdi/plans/index.js";
 import { Deliver } from "../../../src/bdi/plans/index.js";
-import {
-  buildGameMap,
-  type GameMap,
-  type Pos,
-} from "../../../src/core/beliefs/index.js";
-import type { Direction, IOTile } from "../../../src/core/sdk/index.js";
+import type { Pos } from "../../../src/core/beliefs/index.js";
 import { PlanFailedError } from "../../../src/core/util/index.js";
+import {
+  applyDir,
+  gridMap,
+  stubPlanContext,
+} from "../../helpers/plan-context.js";
 
-function gridMap(w: number, h: number): GameMap {
-  const tiles: IOTile[] = [];
-  for (let x = 0; x < w; x++)
-    for (let y = 0; y < h; y++) tiles.push({ x, y, type: "3" });
-  return buildGameMap(w, h, tiles);
-}
-
-function applyDir(p: Pos, dir: Direction): Pos {
-  switch (dir) {
-    case "up":
-      return { x: p.x, y: p.y + 1 };
-    case "down":
-      return { x: p.x, y: p.y - 1 };
-    case "left":
-      return { x: p.x - 1, y: p.y };
-    case "right":
-      return { x: p.x + 1, y: p.y };
-  }
-}
-
-function makeCtx(
-  map: GameMap,
-  start: Pos,
-  carried: string[],
-): PlanContext & { putdowns: number; delivered: string[] } {
+/** A context that walks a grid and drops whatever `carried` holds. */
+function makeCtx(w: number, h: number, start: Pos, carried: string[]) {
   let pos = start;
-  let putdowns = 0;
-  const delivered: string[] = [];
+  let stack = [...carried];
+  const dropped: string[] = [];
 
-  const ctx = {
-    map,
-    moveDurationMs: 10,
+  const ctx = stubPlanContext({
+    map: gridMap(w, h),
     myPosition: () => pos,
-    isBlocked: () => false,
-    emitMove: async (dir: Direction) => {
+    myExactPosition: () => pos,
+    emitMove: async (dir) => {
       pos = applyDir(pos, dir);
       return pos;
     },
-    emitPickup: async () => [],
-    emitPutdown: async () => {
-      putdowns++;
-      return [];
+    carriedParcelIds: () => stack,
+    putDownAll: async () => {
+      const out = stack;
+      stack = [];
+      dropped.push(...out);
+      return out;
     },
-    wait: async () => {},
-    carriedParcelIds: () => carried,
-    isParcelFree: () => false,
-    freeParcelIdsAt: () => [],
-    applyPickup: () => {},
-    applyDelivered: (ids: readonly string[]) => {
-      delivered.push(...ids);
-    },
-    get putdowns() {
-      return putdowns;
-    },
-    get delivered() {
-      return delivered;
-    },
-  };
+  });
 
-  return ctx as unknown as PlanContext & {
-    putdowns: number;
-    delivered: string[];
-  };
+  return { ctx, dropped, pos: () => pos };
 }
 
 const deliverIntent = (target: Pos): Intention => ({ kind: "deliver", target });
 
 describe("Deliver — applicability", () => {
   it("is applicable when carrying parcels and target in bounds", () => {
-    const map = gridMap(3, 3);
-    const ctx = makeCtx(map, { x: 0, y: 0 }, ["c1"]);
-    const plan = new Deliver(ctx);
-    expect(plan.isApplicableTo(deliverIntent({ x: 2, y: 2 }))).toBe(true);
+    const { ctx } = makeCtx(3, 3, { x: 0, y: 0 }, ["c1"]);
+    expect(new Deliver(ctx).isApplicableTo(deliverIntent({ x: 2, y: 2 }))).toBe(
+      true,
+    );
   });
 
   it("is NOT applicable when carrying nothing", () => {
-    const map = gridMap(3, 3);
-    const ctx = makeCtx(map, { x: 0, y: 0 }, []);
-    const plan = new Deliver(ctx);
-    expect(plan.isApplicableTo(deliverIntent({ x: 2, y: 2 }))).toBe(false);
+    const { ctx } = makeCtx(3, 3, { x: 0, y: 0 }, []);
+    expect(new Deliver(ctx).isApplicableTo(deliverIntent({ x: 2, y: 2 }))).toBe(
+      false,
+    );
   });
 
   it("is NOT applicable for out-of-bounds target", () => {
-    const map = gridMap(3, 3);
-    const ctx = makeCtx(map, { x: 0, y: 0 }, ["c1"]);
-    const plan = new Deliver(ctx);
-    expect(plan.isApplicableTo(deliverIntent({ x: 9, y: 9 }))).toBe(false);
+    const { ctx } = makeCtx(3, 3, { x: 0, y: 0 }, ["c1"]);
+    expect(new Deliver(ctx).isApplicableTo(deliverIntent({ x: 9, y: 9 }))).toBe(
+      false,
+    );
   });
 
   it("is NOT applicable for wrong intention kind", () => {
-    const map = gridMap(3, 3);
-    const ctx = makeCtx(map, { x: 0, y: 0 }, ["c1"]);
-    const plan = new Deliver(ctx);
+    const { ctx } = makeCtx(3, 3, { x: 0, y: 0 }, ["c1"]);
     expect(
-      plan.isApplicableTo({
+      new Deliver(ctx).isApplicableTo({
         kind: "pickup",
         parcelId: "x",
         target: { x: 1, y: 1 },
@@ -114,31 +72,42 @@ describe("Deliver — applicability", () => {
 });
 
 describe("Deliver — success path", () => {
-  it("navigates to the delivery tile and calls emitPutdown", async () => {
-    const map = gridMap(3, 1);
-    const ctx = makeCtx(map, { x: 0, y: 0 }, ["c1"]);
-    const plan = new Deliver(ctx);
-    await plan.execute(deliverIntent({ x: 2, y: 0 }));
-    expect(ctx.myPosition()).toEqual({ x: 2, y: 0 });
-    expect(ctx.putdowns).toBe(1);
-  });
+  it("navigates to the delivery tile and drops the whole stack", async () => {
+    const { ctx, dropped, pos } = makeCtx(3, 1, { x: 0, y: 0 }, ["c1", "c2"]);
 
-  it("optimistically forgets the delivered stack (no stale re-commit to deliver)", async () => {
-    const map = gridMap(3, 1);
-    const ctx = makeCtx(map, { x: 0, y: 0 }, ["c1", "c2"]);
-    const plan = new Deliver(ctx);
-    await plan.execute(deliverIntent({ x: 2, y: 0 }));
-    expect(ctx.delivered).toEqual(["c1", "c2"]);
+    await new Deliver(ctx).execute(deliverIntent({ x: 2, y: 0 }));
+
+    expect(pos()).toEqual({ x: 2, y: 0 });
+    expect(dropped).toEqual(["c1", "c2"]);
   });
 });
 
-describe("Deliver — wrong intention kind", () => {
+describe("Deliver — failure paths", () => {
   it("throws PlanFailedError when executed with wrong kind", async () => {
-    const map = gridMap(3, 1);
-    const ctx = makeCtx(map, { x: 0, y: 0 }, ["c1"]);
-    const plan = new Deliver(ctx);
+    const { ctx } = makeCtx(3, 1, { x: 0, y: 0 }, ["c1"]);
     await expect(
-      plan.execute({ kind: "explore", target: { x: 1, y: 0 } }),
+      new Deliver(ctx).execute({ kind: "explore", target: { x: 1, y: 0 } }),
     ).rejects.toBeInstanceOf(PlanFailedError);
+  });
+
+  it("throws when the stack turned out to be empty on arrival (stale beliefs)", async () => {
+    const { ctx } = makeCtx(3, 1, { x: 0, y: 0 }, []);
+    await expect(
+      new Deliver(ctx).execute(deliverIntent({ x: 2, y: 0 })),
+    ).rejects.toBeInstanceOf(PlanFailedError);
+  });
+});
+
+describe("Deliver — stop() is terminal", () => {
+  it("does not put down after stop(); a retry needs a fresh instance", async () => {
+    const { ctx, dropped } = makeCtx(3, 1, { x: 0, y: 0 }, ["c1"]);
+    const plan = new Deliver(ctx);
+    plan.stop();
+
+    await plan.execute(deliverIntent({ x: 2, y: 0 }));
+    expect(dropped).toEqual([]);
+
+    await new Deliver(ctx).execute(deliverIntent({ x: 2, y: 0 }));
+    expect(dropped).toEqual(["c1"]);
   });
 });

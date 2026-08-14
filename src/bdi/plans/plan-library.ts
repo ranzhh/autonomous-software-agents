@@ -1,23 +1,39 @@
 /**
- * The reactive plan library: a registry of plans queried by intention. `select`
- * returns the first plan applicable to the intention, or `undefined` when none
- * applies (the caller falls back to exploration / re-deliberation). Phase 2
- * registers a single `GoTo`; Phase 3 adds GoPickUp/Deliver/Wander, and this is
- * also the reactive fallback path for PDDL.
+ * The reactive plan library: a registry of plan *factories* queried by
+ * intention. `select` builds candidates in registration order and returns the
+ * first one applicable to the intention, or `undefined` when none applies (the
+ * caller falls back to exploration / re-deliberation). It is also the reactive
+ * fallback path for PDDL.
+ *
+ * **A fresh instance per selection is the point.** A plan holds per-execution
+ * state (`aborted`, the inner `GoTo`), so a shared instance would host several
+ * overlapping executions whenever deliberation preempts one — and `stop()`
+ * could no longer be terminal, since the next `execute()` would have to clear
+ * the abort flag and thereby resurrect the old run. Handing out fresh
+ * instances is the same discipline the plans already apply internally, where
+ * every navigation leg is a `new GoTo(ctx)` (see `GoTo`'s note on `stop()`).
+ * → ADR-0008.
  */
 
 import type { Intention } from "../intentions/index.js";
 import type { BasePlan } from "./base-plan.js";
 
-export class PlanLibrary {
-  private readonly plans: readonly BasePlan[];
+/** Builds a ready-to-execute plan. Called once per `select`. */
+export type PlanFactory = () => BasePlan;
 
-  constructor(plans: readonly BasePlan[]) {
-    this.plans = plans;
+export class PlanLibrary {
+  private readonly factories: readonly PlanFactory[];
+
+  constructor(factories: readonly PlanFactory[]) {
+    this.factories = factories;
   }
 
-  /** The first registered plan applicable to `intention`, or `undefined`. */
+  /** A fresh instance of the first plan applicable to `intention`. */
   select(intention: Intention): BasePlan | undefined {
-    return this.plans.find((plan) => plan.isApplicableTo(intention));
+    for (const build of this.factories) {
+      const plan = build();
+      if (plan.isApplicableTo(intention)) return plan;
+    }
+    return undefined;
   }
 }

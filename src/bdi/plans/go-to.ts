@@ -45,7 +45,6 @@ export class GoTo extends BasePlan {
   }
 
   override async execute(intention: Intention): Promise<void> {
-    this.aborted = false; // reset so this instance can be reused after a prior stop()
     if (intention.kind !== "goto") {
       throw new PlanFailedError(
         `GoTo cannot execute intention "${intention.kind}"`,
@@ -64,7 +63,7 @@ export class GoTo extends BasePlan {
       !samePos(p, target) && this.ctx.isBlocked(p);
 
     // Opportunistically grab any free parcel already on the start tile.
-    await this.grabHere(cur);
+    await this.grabHere();
 
     let failures = 0;
     // The tile we were on before the last successful move — used to damp the
@@ -123,7 +122,7 @@ export class GoTo extends BasePlan {
         } else {
           prev = before;
           failures = 0;
-          await this.grabHere(cur);
+          await this.grabHere();
         }
         continue;
       }
@@ -131,21 +130,16 @@ export class GoTo extends BasePlan {
       prev = cur;
       cur = { x: result.x, y: result.y };
       failures = 0;
-      // Grab any free parcel sitting on the tile we just stepped onto. There is
-      // no capacity limit, so collecting a parcel we pass over is free value
-      // regardless of the current goal (pickup / deliver / explore).
-      await this.grabHere(cur);
+      await this.grabHere();
     }
   }
 
   /**
-   * If free parcels sit on tile `at`, pick them all up and reflect it in beliefs
-   * immediately (so deliberation re-assesses with the larger carried set).
+   * Grab any free parcel on the tile we just stepped onto. There is no capacity
+   * limit, so a parcel we pass over is free value regardless of the goal.
    */
-  private async grabHere(at: Pos): Promise<void> {
+  private async grabHere(): Promise<void> {
     if (this.aborted) return;
-    if (this.ctx.freeParcelIdsAt(at).length === 0) return;
-    const picked = await this.ctx.emitPickup();
-    this.ctx.applyPickup(picked.map((p) => p.id));
+    await this.ctx.pickUpHere();
   }
 }

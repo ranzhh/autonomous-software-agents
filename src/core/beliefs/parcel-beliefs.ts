@@ -61,11 +61,14 @@ export interface ParcelBeliefs {
   applyPickup(ids: readonly string[], myId: string, now: number): void;
 
   /**
-   * Optimistically forget parcels `ids`, from a delivery (`emitPutdown` on a
-   * delivery tile → scored & removed server-side). Mirrors `applyPickup`: stops
-   * the agent re-committing to `deliver` on stale beliefs after a delivery.
+   * Drop parcels `ids` outright — the caller has direct evidence they are not
+   * where we believed. In practice: an `emitPickup` that returned nothing on a
+   * tile where we believed free parcels sat (they were taken, expired, or we
+   * already carry them). Sensing is still the source of truth and re-adds them
+   * on the next tick if they do exist; this only stops deliberation from
+   * re-targeting a phantom in the meantime.
    */
-  applyDelivered(ids: readonly string[]): void;
+  forget(ids: readonly string[]): void;
 
   /** Parcels not being carried by anyone (free to pick up). */
   free(): readonly ParcelEntry[];
@@ -158,7 +161,7 @@ export function createParcelBeliefs(decayMs: number): ParcelBeliefs {
     }
   }
 
-  function applyDelivered(ids: readonly string[]): void {
+  function forget(ids: readonly string[]): void {
     for (const id of ids) store.delete(id);
   }
 
@@ -185,7 +188,7 @@ export function createParcelBeliefs(decayMs: number): ParcelBeliefs {
     revise,
     remainingReward,
     applyPickup,
-    applyDelivered,
+    forget,
     free,
     carriedByMe,
     carriedByOther,

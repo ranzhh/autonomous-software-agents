@@ -5,10 +5,10 @@
  * (it was taken while we were en route to deliberation), we throw immediately
  * so the BDI loop re-deliberates rather than walking to an empty tile.
  *
- * After navigating to the target, `emitPickup` grabs every uncarried parcel on
- * that tile in one action (CLAUDE.md §6). If the parcel was snatched just before
- * we arrive, we may still pick up others on the same tile — the BDI loop will
- * re-assess the carried set on the next sensing event regardless.
+ * `GoTo` grabs parcels opportunistically on every tile it steps onto, arrival
+ * included, so by the time we get here the parcel is usually already ours and
+ * `pickUpHere` is a no-op. Failing to find it either way means beliefs were
+ * stale — re-deliberate.
  */
 
 import { PlanFailedError } from "../../core/util/index.js";
@@ -20,7 +20,6 @@ export class GoPickUp extends BasePlan {
   override readonly name = "GoPickUp";
   private inner: GoTo | undefined = undefined;
   private aborted = false;
-  private generation = 0;
 
   override isApplicableTo(intention: Intention): boolean {
     return (
@@ -34,36 +33,31 @@ export class GoPickUp extends BasePlan {
   }
 
   override async execute(intention: Intention): Promise<void> {
-    // Reset abort state so the instance can be reused after a prior stop().
-    // A generation counter guards the post-navigation emitPickup against a stale
-    // execution that was stopped and replaced before it reached this point.
-    this.aborted = false;
-    const gen = ++this.generation;
-
     if (intention.kind !== "pickup") {
       throw new PlanFailedError(
         `GoPickUp cannot execute intention "${intention.kind}"`,
       );
     }
 
-    // Phantom-guard: abort immediately if the parcel is already taken.
+    if (this.aborted) return;
+
     if (!this.ctx.isParcelFree(intention.parcelId)) {
       throw new PlanFailedError(
         `GoPickUp: parcel ${intention.parcelId} is no longer free — re-deliberating`,
       );
     }
 
-    const inner = new GoTo(this.ctx);
-    this.inner = inner;
-    await inner.execute({ kind: "goto", target: intention.target });
-    if (this.inner === inner) this.inner = undefined;
+    this.inner = new GoTo(this.ctx);
+    await this.inner.execute({ kind: "goto", target: intention.target });
+    this.inner = undefined;
+    if (this.aborted) return;
 
-    if (!this.aborted && this.generation === gen) {
-      const picked = await this.ctx.emitPickup();
-      // Optimistically reflect the pickup in beliefs straight away so the next
-      // deliberation moves on to delivery instead of re-committing to this same
-      // (now-stale) pickup until the following sensing tick arrives.
-      this.ctx.applyPickup(picked.map((p) => p.id));
-    }
+    if ((await this.ctx.pickUpHere()).length > 0) return;
+    if (this.ctx.carriedParcelIds().includes(intention.parcelId)) return;
+
+    throw new PlanFailedError(
+      `GoPickUp: parcel ${intention.parcelId} was not at ` +
+        `(${intention.target.x},${intention.target.y}) — stale beliefs`,
+    );
   }
 }

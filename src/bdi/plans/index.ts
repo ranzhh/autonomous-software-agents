@@ -16,5 +16,5 @@ export {
   type PlanContext,
   type PlanContextOptions,
 } from "./plan-context.js";
-export { PlanLibrary } from "./plan-library.js";
+export { type PlanFactory, PlanLibrary } from "./plan-library.js";
 export { Wander } from "./wander.js";

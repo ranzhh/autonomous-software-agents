@@ -14,7 +14,6 @@ import type { BeliefSet, GameMap, Pos } from "../../core/beliefs/index.js";
 import type {
   Direction,
   GameConnection,
-  PickedParcel,
   Position,
 } from "../../core/sdk/index.js";
 import { PlanFailedError } from "../../core/util/index.js";
@@ -49,10 +48,19 @@ export interface PlanContext {
   isBlocked(p: Pos): boolean;
   /** Move one tile; resolves to the new position or `false` if it was occupied. */
   emitMove(direction: Direction): Promise<Position | false>;
-  /** Pick up every uncarried parcel on the current tile. */
-  emitPickup(): Promise<readonly PickedParcel[]>;
-  /** Put down parcels (omit/`[]` drops ALL). */
-  emitPutdown(ids?: readonly string[]): Promise<readonly PickedParcel[]>;
+  /**
+   * Pick up whatever we believe sits on the current tile and reconcile beliefs
+   * with the outcome; resolves to the ids now carried (empty if there was
+   * nothing to take). Pairs the action with its belief effect so no caller has
+   * to know how to read a pickup ack — see the implementation for why that is
+   * not obvious.
+   */
+  pickUpHere(): Promise<readonly string[]>;
+  /**
+   * Put down everything carried and forget it; resolves to the dropped ids.
+   * Only a delivery tile scores — the caller chooses where to stand.
+   */
+  putDownAll(): Promise<readonly string[]>;
   /** `movement_duration` (ms) — the unit of the wait-and-retry backoff. */
   readonly moveDurationMs: number;
   /** Parcel decay interval (ms; `+Infinity` = no decay) — for value math. */
@@ -69,16 +77,6 @@ export interface PlanContext {
   carriedParcels(): readonly CarriedParcelSnapshot[];
   /** True iff parcel `id` is believed to be free (not carried by anyone). */
   isParcelFree(id: string): boolean;
-  /** IDs of free (uncarried) parcels believed to be sitting on tile `p`. */
-  freeParcelIdsAt(p: Pos): readonly string[];
-  /**
-   * Optimistically record an `emitPickup` ack: mark `ids` carried-by-me in beliefs
-   * now, so the next deliberation reflects the pickup without waiting for sensing
-   * (prevents re-committing to the just-picked parcel). No-op without a known self id.
-   */
-  applyPickup(ids: readonly string[]): void;
-  /** Optimistically record a delivery (`emitPutdown` on a delivery tile): forget `ids`. */
-  applyDelivered(ids: readonly string[]): void;
 }
 
 export interface PlanContextOptions {
@@ -137,8 +135,48 @@ export function createPlanContext(
       return false;
     },
     emitMove: (direction) => connection.emitMove(direction),
-    emitPickup: () => connection.emitPickup(),
-    emitPutdown: (ids) => connection.emitPutdown(ids),
+
+    /**
+     * Reading a pickup ack takes two pieces of server knowledge, so it lives
+     * here once rather than in every plan that picks up:
+     *  - the ack's entries carry **no `id`** (`Parcel#id` is a getter over a
+     *    private field, so JSON drops it), so the ids come from our beliefs —
+     *    sound because `pickup` takes *every* free parcel on the tile;
+     *  - `undefined` means the ack was lost, not that nothing was taken; the
+     *    action probably ran, so we credit it and let sensing correct us.
+     * Only an explicit empty ack proves the tile was empty, which makes the
+     * belief stale — drop it, or deliberation re-targets the phantom faster
+     * than sensing can correct it. → CLAUDE.md §6, ADR-0008.
+     */
+    async pickUpHere() {
+      const me = beliefs.me;
+      if (me?.x === undefined || me.y === undefined) return [];
+      const at = { x: Math.round(me.x), y: Math.round(me.y) };
+      const expected = beliefs.parcels
+        .free()
+        .filter((p) => p.x === at.x && p.y === at.y)
+        .map((p) => p.id);
+      if (expected.length === 0) return [];
+
+      const picked = await connection.emitPickup();
+      if (picked !== undefined && picked.length === 0) {
+        beliefs.parcels.forget(expected);
+        return [];
+      }
+      beliefs.parcels.applyPickup(expected, me.id, Date.now());
+      return expected;
+    },
+
+    async putDownAll() {
+      const carried = beliefs.parcels.carriedByMe().map((p) => p.id);
+      if (carried.length === 0) return [];
+      await connection.emitPutdown();
+      // Applied even on a lost ack: the putdown probably ran, and sensing
+      // re-adds the parcels if it did not.
+      beliefs.parcels.forget(carried);
+      return carried;
+    },
+
     carriedParcelIds() {
       return beliefs.parcels.carriedByMe().map((p) => p.id);
     },
@@ -150,21 +188,6 @@ export function createPlanContext(
     },
     isParcelFree(id) {
       return beliefs.parcels.free().some((p) => p.id === id);
-    },
-    freeParcelIdsAt(p) {
-      return beliefs.parcels
-        .free()
-        .filter((parcel) => parcel.x === p.x && parcel.y === p.y)
-        .map((parcel) => parcel.id);
-    },
-    applyPickup(ids) {
-      const myId = beliefs.me?.id;
-      if (myId === undefined || ids.length === 0) return;
-      beliefs.parcels.applyPickup(ids, myId, Date.now());
-    },
-    applyDelivered(ids) {
-      if (ids.length === 0) return;
-      beliefs.parcels.applyDelivered(ids);
     },
   };
 }
