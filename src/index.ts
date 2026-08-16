@@ -17,3 +17,4 @@ for (const direction of path) {
 }
 
 await game.pickup();
+game.disconnect();
