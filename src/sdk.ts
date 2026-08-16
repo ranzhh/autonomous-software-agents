@@ -86,6 +86,7 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
 
   // After a lost ack the server may still be executing; the next action would hit a held mutex.
   async function cooldown(): Promise<void> {
+    // could cause issues with the sdk's own 1s timeout
     const ms = (config ?? (await configured)).GAME.player.movement_duration;
     if (ms <= 0) return;
     await new Promise((resolve) => setTimeout(resolve, ms));
