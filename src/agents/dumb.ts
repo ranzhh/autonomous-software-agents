@@ -1,12 +1,5 @@
 import { log } from "../log.js";
-import { connect, type Direction } from "../sdk.js";
-
-const DIRECTIONS = [
-  "up",
-  "right",
-  "down",
-  "left",
-] as const satisfies readonly Direction[];
+import { connect, DIRECTIONS, type Direction } from "../sdk.js";
 
 const game = connect();
 const { me, config } = await game.ready();

@@ -10,6 +10,13 @@ export type Direction = Parameters<
   ReturnType<typeof DjsConnect>["emitMove"]
 >[0];
 
+export const DIRECTIONS = [
+  "up",
+  "right",
+  "down",
+  "left",
+] as const satisfies readonly Direction[];
+
 export interface Position {
   x: number;
   y: number;
