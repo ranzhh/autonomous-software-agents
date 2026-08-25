@@ -2,6 +2,7 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent } from "@unitn-asa/deliveroo-js-sdk/types/IOAgent.js";
 import type { IOConfig } from "@unitn-asa/deliveroo-js-sdk/types/IOConfig.js";
 import type { IOTile } from "@unitn-asa/deliveroo-js-sdk/types/IOTile.js";
+import { log } from "./log.js";
 
 export type { IOAgent, IOConfig, IOTile };
 
@@ -98,14 +99,23 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
 
   // The SDK gives every emit a 1s ack timeout that rejects even when the action did
   // execute server-side, so a lost ack is unknown, never "nothing happened".
-  function action<T>(run: () => Promise<T>): Promise<T | undefined> {
+  function action<T>(
+    fields: Record<string, unknown>,
+    run: () => Promise<T>,
+  ): Promise<T | undefined> {
     const attempt = async (): Promise<Settled<T>> => {
+      const startedAt = Date.now();
+      const ms = () => Date.now() - startedAt;
       try {
-        return { ok: true, value: await run() };
+        const value = await run();
+        log.info({ ...fields, result: value, ms: ms() }, "acked");
+        return { ok: true, value };
       } catch (error) {
         if (!(error instanceof Error) || !LOST_ACK.test(error.message)) {
+          log.error({ ...fields, err: error, ms: ms() }, "failed");
           return { ok: false, error };
         }
+        log.warn({ ...fields, ms: ms() }, "ack lost, cooling down");
         await cooldown();
         return { ok: true, value: undefined };
       }
@@ -123,9 +133,11 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
   return {
     ready: () => world,
     me: () => latest,
-    move: (direction) => action(() => socket.emitMove(direction)),
-    pickup: () => action(() => socket.emitPickup()),
-    putdown: (ids) => action(() => socket.emitPutdown(ids)),
+    move: (direction) =>
+      action({ action: "move", direction }, () => socket.emitMove(direction)),
+    pickup: () => action({ action: "pickup" }, () => socket.emitPickup()),
+    putdown: (ids) =>
+      action({ action: "putdown", ids }, () => socket.emitPutdown(ids)),
     disconnect: () => socket.disconnect(),
   };
 }
