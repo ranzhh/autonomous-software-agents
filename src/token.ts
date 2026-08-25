@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { env } from "./env.js";
 
 const DIR = ".run/tokens";
 
@@ -10,14 +11,10 @@ const path = `${DIR}/${agent}.jwt`;
 if (!flags.includes("--new") && existsSync(path)) {
   console.log(readFileSync(path, "utf8").trim());
 } else {
-  const { HOST, NAME, TEAM } = process.env;
-  if (!HOST || !NAME || !TEAM)
-    throw new Error("HOST, NAME and TEAM must be set");
-
   // The server mints a fresh id and teamId per call; name and team are only labels.
-  const response = await fetch(`${HOST}/api/tokens`, {
+  const response = await fetch(`${env.HOST}/api/tokens`, {
     method: "POST",
-    headers: { name: `${NAME}-${agent}`, team: TEAM },
+    headers: { name: `${env.NAME}-${agent}`, team: env.TEAM },
   });
   if (!response.ok)
     throw new Error(`minting a token failed: ${response.status}`);
