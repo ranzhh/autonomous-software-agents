@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   connect,
   type GameSocket,
@@ -79,6 +79,18 @@ describe("ready", () => {
   it("returns the same world to every caller", async () => {
     const game = connect(fakeSocket());
     expect(await game.ready()).toBe(await game.ready());
+  });
+
+  it("names the events that never arrived when it times out", async () => {
+    vi.useFakeTimers();
+    const game = connect(fakeSocket({ onMap: () => {}, onConfig: () => {} }));
+
+    const failed = expect(game.ready()).rejects.toThrow(
+      "ready timed out after 10000ms without map, config",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    await failed;
+    vi.useRealTimers();
   });
 });
 
