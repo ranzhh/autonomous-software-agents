@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   connect,
   type GameSocket,
@@ -50,14 +50,14 @@ function fakeSocket(overrides: Partial<GameSocket> = {}): GameSocket {
 }
 
 describe("ready", () => {
-  it("resolves with the map, the config and a positioned agent", async () => {
+  test("resolves with the map, the config and a positioned agent", async () => {
     const world = await connect(fakeSocket()).ready();
     expect(world.me).toMatchObject({ x: 1, y: 2 });
     expect(world.tiles).toEqual(tiles);
     expect(world.config.GAME.player.movement_duration).toBe(0);
   });
 
-  it("waits past an unpositioned `you` for the spawned one", async () => {
+  test("waits past an unpositioned `you` for the spawned one", async () => {
     let emit: ((me: IOAgent) => void) | undefined;
     const game = connect(
       fakeSocket({ onYou: (listener) => (emit = listener) }),
@@ -76,12 +76,12 @@ describe("ready", () => {
     expect(world).toMatchObject({ me: { x: 4, y: 5 } });
   });
 
-  it("returns the same world to every caller", async () => {
+  test("returns the same world to every caller", async () => {
     const game = connect(fakeSocket());
     expect(await game.ready()).toBe(await game.ready());
   });
 
-  it("names the events that never arrived when it times out", async () => {
+  test("names the events that never arrived when it times out", async () => {
     vi.useFakeTimers();
     const game = connect(fakeSocket({ onMap: () => {}, onConfig: () => {} }));
 
@@ -95,7 +95,7 @@ describe("ready", () => {
 });
 
 describe("action serialization", () => {
-  it("does not start an action while another is in flight", async () => {
+  test("does not start an action while another is in flight", async () => {
     const events: string[] = [];
     let release: (() => void) | undefined;
     const game = connect(
@@ -123,7 +123,7 @@ describe("action serialization", () => {
     expect(events).toEqual(["start up", "end up", "start down", "end down"]);
   });
 
-  it("keeps serving actions after one rejects", async () => {
+  test("keeps serving actions after one rejects", async () => {
     let calls = 0;
     const game = connect(
       fakeSocket({
@@ -141,12 +141,12 @@ describe("action serialization", () => {
 });
 
 describe("lost acks", () => {
-  it("resolves undefined on an ack timeout", async () => {
+  test("resolves undefined on an ack timeout", async () => {
     const game = connect(fakeSocket({ emitMove: timedOut }));
     await expect(game.move("up")).resolves.toBeUndefined();
   });
 
-  it("resolves undefined on a mid-action disconnect", async () => {
+  test("resolves undefined on a mid-action disconnect", async () => {
     const game = connect(
       fakeSocket({
         emitMove: () => {
@@ -157,13 +157,13 @@ describe("lost acks", () => {
     await expect(game.move("up")).resolves.toBeUndefined();
   });
 
-  it("distinguishes a lost pickup from an empty one", async () => {
+  test("distinguishes a lost pickup from an empty one", async () => {
     await expect(connect(fakeSocket()).pickup()).resolves.toEqual([]);
     const lost = connect(fakeSocket({ emitPickup: timedOut }));
     await expect(lost.pickup()).resolves.toBeUndefined();
   });
 
-  it("propagates errors that are not lost acks", async () => {
+  test("propagates errors that are not lost acks", async () => {
     const game = connect(
       fakeSocket({
         emitMove: () => {
@@ -174,7 +174,7 @@ describe("lost acks", () => {
     await expect(game.move("up")).rejects.toThrow("socket closed");
   });
 
-  it("holds the next action for movement_duration", async () => {
+  test("holds the next action for movement_duration", async () => {
     const game = connect(
       fakeSocket({
         onConfig: (listener) => listener(configWith(50)),
@@ -191,7 +191,7 @@ describe("lost acks", () => {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(45);
   });
 
-  it("cools down even when the config arrives after the action", async () => {
+  test("cools down even when the config arrives after the action", async () => {
     let emit: ((config: IOConfig) => void) | undefined;
     const game = connect(
       fakeSocket({
@@ -213,7 +213,7 @@ describe("lost acks", () => {
 });
 
 describe("delegation", () => {
-  it("forwards the selected ids to putdown", async () => {
+  test("forwards the selected ids to putdown", async () => {
     const seen: (string[] | undefined)[] = [];
     const game = connect(
       fakeSocket({
@@ -229,7 +229,7 @@ describe("delegation", () => {
     expect(seen).toEqual([["p1", "p2"], undefined]);
   });
 
-  it("forwards disconnect", () => {
+  test("forwards disconnect", () => {
     let closed = false;
     connect(fakeSocket({ disconnect: () => (closed = true) })).disconnect();
     expect(closed).toBe(true);
