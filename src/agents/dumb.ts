@@ -5,6 +5,8 @@ const game = connect();
 const { me, config } = await game.ready();
 log.info({ agent: me.name, x: me.x, y: me.y }, "spawned");
 
+game.onLost(() => process.exit(1));
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     log.info({ signal }, "disconnecting");

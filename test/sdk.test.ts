@@ -41,6 +41,8 @@ function fakeSocket(overrides: Partial<GameSocket> = {}): GameSocket {
     onConfig: (listener) => listener(configWith(0)),
     onYou: (listener) => listener(agent({ x: 1, y: 2 })),
     onMap: (listener) => listener(1, 1, tiles),
+    onDisconnect: () => {},
+    active: false,
     emitMove: async () => ({ x: 0, y: 0 }),
     emitPickup: async () => [],
     emitPutdown: async () => [],
@@ -91,6 +93,46 @@ describe("ready", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await failed;
     vi.useRealTimers();
+  });
+});
+
+describe("lost connections", () => {
+  function dropping(active: boolean) {
+    let drop: (() => void) | undefined;
+    const game = connect(
+      fakeSocket({ active, onDisconnect: (listener) => (drop = listener) }),
+    );
+    return { game, drop: () => drop?.() };
+  }
+
+  test("tells the caller once socket.io has given up", () => {
+    const { game, drop } = dropping(false);
+    let lost = false;
+    game.onLost(() => (lost = true));
+    drop();
+    expect(lost).toBe(true);
+  });
+
+  test("stays quiet while socket.io is still retrying", () => {
+    const { game, drop } = dropping(true);
+    let lost = false;
+    game.onLost(() => (lost = true));
+    drop();
+    expect(lost).toBe(false);
+  });
+
+  test("stays quiet when disconnect closed it", () => {
+    const { game, drop } = dropping(false);
+    let lost = false;
+    game.onLost(() => (lost = true));
+    game.disconnect();
+    drop();
+    expect(lost).toBe(false);
+  });
+
+  test("survives a caller that never registered a listener", () => {
+    const { drop } = dropping(false);
+    expect(drop).not.toThrow();
   });
 });
 

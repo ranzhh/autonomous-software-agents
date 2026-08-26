@@ -38,6 +38,9 @@ export interface GameSocket {
   onMap(
     listener: (width: number, height: number, tiles: IOTile[]) => void,
   ): void;
+  onDisconnect(listener: () => void): void;
+  /** Whether socket.io will reconnect on its own; false once it has given up. */
+  readonly active: boolean;
   emitMove(direction: Direction): Promise<Position | false>;
   emitPickup(): Promise<Parcel[]>;
   emitPutdown(selected?: string[]): Promise<Parcel[]>;
@@ -49,6 +52,8 @@ export interface Connection {
   ready(): Promise<World>;
   /** Latest `you` snapshot; `undefined` until the first one arrives. */
   me(): IOAgent | undefined;
+  /** It is triggered when the connection is permanently lost, but not because of `disconnect` */
+  onLost(listener: () => void): void;
   /** Position on success, `false` if the server refused, `undefined` if the ack was lost. */
   move(direction: Direction): Promise<Position | false | undefined>;
   pickup(): Promise<Parcel[] | undefined>;
@@ -70,6 +75,15 @@ const READY_TIMEOUT_MS = 10_000;
 export function connect(socket: GameSocket = DjsConnect()): Connection {
   let latest: IOAgent | undefined;
   let config: IOConfig | undefined;
+  let closing = false;
+  let lost: (() => void) | undefined;
+
+
+  socket.onDisconnect(() => {
+    if (closing || socket.active) return;
+    log.error("the server closed the connection");
+    lost?.();
+  });
 
   const awaiting = new Set(["you", "map", "config"]);
   function arrived<T>(name: string, value: T): T {
@@ -166,11 +180,17 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
   return {
     ready: () => world,
     me: () => latest,
+    onLost: (listener) => {
+      lost = listener;
+    },
     move: (direction) =>
       action({ action: "move", direction }, () => socket.emitMove(direction)),
     pickup: () => action({ action: "pickup" }, () => socket.emitPickup()),
     putdown: (ids) =>
       action({ action: "putdown", ids }, () => socket.emitPutdown(ids)),
-    disconnect: () => socket.disconnect(),
+    disconnect: () => {
+      closing = true;
+      socket.disconnect();
+    },
   };
 }
