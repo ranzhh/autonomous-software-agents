@@ -26,6 +26,13 @@ export interface Parcel {
   id: string;
 }
 
+export interface Message {
+  from: { id: string; name: string };
+  payload: unknown;
+  // Present only when the sender used `ask`, and the server stops waiting for it after a second
+  reply?: ((value: object) => void) | undefined;
+}
+
 export interface World {
   me: IOAgent;
   tiles: IOTile[];
@@ -41,6 +48,18 @@ export interface GameSocket {
   emitMove(direction: Direction): Promise<Position | false>;
   emitPickup(): Promise<Parcel[]>;
   emitPutdown(selected?: string[]): Promise<Parcel[]>;
+  // Both answer 'successful'; emitShout is typed `Promise<{any}>` (DjsClientSocket.js:192).
+  emitSay(toId: string, payload: unknown): Promise<unknown>;
+  emitAsk(toId: string, payload: unknown): Promise<unknown>;
+  emitShout(payload: unknown): Promise<unknown>;
+  onMsg(
+    listener: (
+      fromId: string,
+      fromName: string,
+      payload: unknown,
+      reply?: (value: object) => void,
+    ) => void,
+  ): void;
   disconnect(): void;
 }
 
@@ -53,6 +72,14 @@ export interface Connection {
   move(direction: Direction): Promise<Position | false | undefined>;
   pickup(): Promise<Parcel[] | undefined>;
   putdown(ids?: string[]): Promise<Parcel[] | undefined>;
+  /** `true` once the server has taken the message, `undefined` if it never answered. */
+  say(toId: string, payload: unknown): Promise<boolean | undefined>;
+  /** The answer, or `undefined`: unanswered, too late and no such agent are one case. */
+  ask(toId: string, payload: unknown): Promise<unknown>;
+  /** Heard by every connected agent, opponents included. */
+  shout(payload: unknown): Promise<boolean | undefined>;
+  /** Every `say`, `ask` and `shout` addressed to us, whoever sent it. */
+  onMessage(listener: (message: Message) => void): void;
   disconnect(): void;
 }
 
@@ -65,6 +92,20 @@ type Settled<T> =
 const LOST_ACK = /timed out|has been disconnected/i;
 
 const READY_TIMEOUT_MS = 10_000;
+
+const SPEECH_TIMEOUT_MS = 1_000;
+
+// The server already gives the recipient a second, so this only catches a lost ack.
+const ASK_TIMEOUT_MS = 2_000;
+
+// Chat emits carry no ack timeout of their own, so an unanswered say never returns.
+function deadline<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout>;
+  const expired = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
 
 // DjsConnect defaults every argument to HOST / TOKEN / NAME in the environment.
 export function connect(socket: GameSocket = DjsConnect()): Connection {
@@ -118,6 +159,17 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
     // An armed timer would hold node open for the full timeout after a clean ready.
   ]).finally(() => clearTimeout(timer));
 
+  const audience = new Set<(message: Message) => void>();
+
+  socket.onMsg((fromId, fromName, payload, reply) => {
+    log.info(
+      { from: fromName, id: fromId, payload, ask: reply !== undefined },
+      "heard",
+    );
+    const message = { from: { id: fromId, name: fromName }, payload, reply };
+    for (const listener of audience) listener(message);
+  });
+
   // After a lost ack the server may still be executing; the next action would hit a held mutex.
   async function cooldown(): Promise<void> {
     // could cause issues with the sdk's own 1s timeout
@@ -163,6 +215,31 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
     });
   }
 
+  async function speak(
+    fields: Record<string, unknown>,
+    run: () => Promise<unknown>,
+  ): Promise<boolean | undefined> {
+    const status = await deadline(run(), SPEECH_TIMEOUT_MS);
+    if (status === undefined) {
+      log.warn(fields, "never acknowledged");
+      return undefined;
+    }
+    log.info({ ...fields, status }, "said");
+    return status === "successful";
+  }
+
+  async function question(toId: string, payload: unknown): Promise<unknown> {
+    const fields = { action: "ask", to: toId, payload };
+    const reply = await deadline(socket.emitAsk(toId, payload), ASK_TIMEOUT_MS);
+    // The server answers 'timeout' for a recipient that stayed silent, was late, or never existed.
+    if (reply === undefined || reply === "timeout") {
+      log.warn(fields, "unanswered");
+      return undefined;
+    }
+    log.info({ ...fields, reply }, "asked");
+    return reply;
+  }
+
   return {
     ready: () => world,
     me: () => latest,
@@ -171,6 +248,16 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
     pickup: () => action({ action: "pickup" }, () => socket.emitPickup()),
     putdown: (ids) =>
       action({ action: "putdown", ids }, () => socket.emitPutdown(ids)),
+    say: (toId, payload) =>
+      speak({ action: "say", to: toId, payload }, () =>
+        socket.emitSay(toId, payload),
+      ),
+    ask: question,
+    shout: (payload) =>
+      speak({ action: "shout", payload }, () => socket.emitShout(payload)),
+    onMessage: (listener) => {
+      audience.add(listener);
+    },
     disconnect: () => socket.disconnect(),
   };
 }

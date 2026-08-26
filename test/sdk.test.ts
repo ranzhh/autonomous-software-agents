@@ -5,6 +5,7 @@ import {
   type IOAgent,
   type IOConfig,
   type IOTile,
+  type Message,
 } from "../src/sdk.js";
 
 const timedOut = (): never => {
@@ -44,6 +45,10 @@ function fakeSocket(overrides: Partial<GameSocket> = {}): GameSocket {
     emitMove: async () => ({ x: 0, y: 0 }),
     emitPickup: async () => [],
     emitPutdown: async () => [],
+    emitSay: async () => "successful",
+    emitAsk: async () => ({ answered: true }),
+    emitShout: async () => "successful",
+    onMsg: () => {},
     disconnect: () => {},
     ...overrides,
   };
@@ -233,5 +238,149 @@ describe("delegation", () => {
     let closed = false;
     connect(fakeSocket({ disconnect: () => (closed = true) })).disconnect();
     expect(closed).toBe(true);
+  });
+});
+
+describe("incoming messages", () => {
+  const listening = (): {
+    game: ReturnType<typeof connect>;
+    heard: Message[];
+    arrive: Parameters<GameSocket["onMsg"]>[0];
+  } => {
+    let arrive: Parameters<GameSocket["onMsg"]>[0] | undefined;
+    const game = connect(
+      fakeSocket({ onMsg: (listener) => (arrive = listener) }),
+    );
+    const heard: Message[] = [];
+    game.onMessage((message) => heard.push(message));
+    if (!arrive) throw new Error("connect never subscribed to msg");
+    return { game, heard, arrive };
+  };
+
+  test("names the sender and keeps the payload whole", () => {
+    const { heard, arrive } = listening();
+
+    arrive("b", "mate", { kind: "hello", at: { x: 1, y: 2 } });
+
+    expect(heard).toEqual([
+      {
+        from: { id: "b", name: "mate" },
+        payload: { kind: "hello", at: { x: 1, y: 2 } },
+        reply: undefined,
+      },
+    ]);
+  });
+
+  test("carries the reply of an `ask`, and only of an `ask`", () => {
+    const { heard, arrive } = listening();
+    const answered = vi.fn();
+
+    arrive("b", "mate", "where are you?", answered);
+    arrive("b", "mate", "just telling you");
+
+    heard[0]?.reply?.({ x: 1, y: 2 });
+    expect(answered).toHaveBeenCalledWith({ x: 1, y: 2 });
+    expect(heard[1]?.reply).toBeUndefined();
+  });
+
+  test("serves every listener", () => {
+    const { game, heard, arrive } = listening();
+    game.onMessage((message) => heard.push(message));
+
+    arrive("b", "mate", "twice");
+
+    expect(heard).toHaveLength(2);
+    expect(heard[0]).toBe(heard[1]);
+  });
+});
+
+describe("outgoing messages", () => {
+  test("reports a say the server took, and what it was given", async () => {
+    const sent: unknown[] = [];
+    const game = connect(
+      fakeSocket({
+        emitSay: async (toId, payload) => {
+          sent.push([toId, payload]);
+          return "successful";
+        },
+      }),
+    );
+
+    await expect(game.say("b", { kind: "hello" })).resolves.toBe(true);
+    expect(sent).toEqual([["b", { kind: "hello" }]]);
+  });
+
+  test("reports a shout the server took", async () => {
+    const sent: unknown[] = [];
+    const game = connect(
+      fakeSocket({
+        emitShout: async (payload) => {
+          sent.push(payload);
+          return "successful";
+        },
+      }),
+    );
+
+    await expect(game.shout("anyone there?")).resolves.toBe(true);
+    expect(sent).toEqual(["anyone there?"]);
+  });
+
+  test("gives up on an emit that never settles", async () => {
+    vi.useFakeTimers();
+    const game = connect(fakeSocket({ emitSay: () => new Promise(() => {}) }));
+
+    const said = game.say("b", "hello?");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(said).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  test("does not wait for an action in flight", async () => {
+    const game = connect(fakeSocket({ emitMove: () => new Promise(() => {}) }));
+
+    const moved = game.move("up");
+    await expect(game.say("b", "still talking")).resolves.toBe(true);
+    expect(moved).toBeInstanceOf(Promise);
+  });
+});
+
+describe("asking", () => {
+  test("resolves with the answer", async () => {
+    const asked: unknown[] = [];
+    const game = connect(
+      fakeSocket({
+        emitAsk: async (toId, payload) => {
+          asked.push([toId, payload]);
+          return { at: { x: 1, y: 2 } };
+        },
+      }),
+    );
+
+    await expect(game.ask("b", { q: "where?" })).resolves.toEqual({
+      at: { x: 1, y: 2 },
+    });
+    expect(asked).toEqual([["b", { q: "where?" }]]);
+  });
+
+  test("reads the server's `timeout` as no answer", async () => {
+    const game = connect(fakeSocket({ emitAsk: async () => "timeout" }));
+    await expect(game.ask("b", "?")).resolves.toBeUndefined();
+  });
+
+  test("gives up on an emit that never settles", async () => {
+    vi.useFakeTimers();
+    const game = connect(fakeSocket({ emitAsk: () => new Promise(() => {}) }));
+
+    const asked = game.ask("b", "?");
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(asked).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  test("does not wait for an action in flight", async () => {
+    const game = connect(fakeSocket({ emitMove: () => new Promise(() => {}) }));
+
+    void game.move("up");
+    await expect(game.ask("b", "?")).resolves.toEqual({ answered: true });
   });
 });
