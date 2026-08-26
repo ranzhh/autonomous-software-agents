@@ -22,8 +22,10 @@ export interface Position {
   y: number;
 }
 
+// A pickup ack nests its coordinates and carries no id, unlike a sensed IOParcel.
 export interface Parcel {
-  id: string;
+  xy: Position;
+  reward: number;
 }
 
 export interface Message {
