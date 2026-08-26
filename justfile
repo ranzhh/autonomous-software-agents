@@ -5,6 +5,7 @@ default:
 
 # Start an agent in the background
 deploy agent="dumb":
+    @if pgrep -f "src/agents/{{agent}}[.]ts" > /dev/null; then echo "{{agent}} is already deployed; stop it first"; exit 1; fi
     @mkdir -p {{rundir}}
     @TOKEN=$(just token {{agent}}) nohup npx tsx --env-file-if-exists=.env src/agents/{{agent}}.ts > {{rundir}}/{{agent}}.log 2>&1 &
     @echo "deployed {{agent}}, logging to {{rundir}}/{{agent}}.log"
@@ -16,6 +17,7 @@ token agent="dumb" *flags="":
 # Stop a deployed agent
 stop agent="dumb":
     @pkill -f "src/agents/{{agent}}[.]ts" && echo "stopped {{agent}}" || echo "{{agent}} is not deployed"
+    @while pgrep -f "src/agents/{{agent}}[.]ts" > /dev/null; do sleep 0.1; done
 
 # Follow a deployed agent's log
 logs agent="dumb":
