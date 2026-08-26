@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { log } from "../src/log.js";
 import {
   connect,
   type GameSocket,
@@ -91,6 +92,34 @@ describe("ready", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await failed;
     vi.useRealTimers();
+  });
+});
+
+describe("penalties", () => {
+  function charging(...penalties: number[]) {
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    let emit: ((me: IOAgent) => void) | undefined;
+    connect(fakeSocket({ onYou: (listener) => (emit = listener) }));
+    for (const penalty of penalties)
+      emit?.({ ...agent({ x: 1, y: 2 }), penalty });
+    const reported = warn.mock.calls.map(([fields]) => fields);
+    warn.mockRestore();
+    return reported;
+  }
+
+  test("reports every charge and where it leaves the agent", () => {
+    expect(charging(0, -1, -4)).toEqual([
+      { penalty: -1, charged: 1 },
+      { penalty: -4, charged: 3 },
+    ]);
+  });
+
+  test("stays quiet while the penalty holds", () => {
+    expect(charging(0, 0, 0)).toEqual([]);
+  });
+
+  test("reports a penalty already charged before the process started", () => {
+    expect(charging(-76)).toEqual([{ penalty: -76, charged: 76 }]);
   });
 });
 

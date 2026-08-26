@@ -69,6 +69,7 @@ const READY_TIMEOUT_MS = 10_000;
 // DjsConnect defaults every argument to HOST / TOKEN / NAME in the environment.
 export function connect(socket: GameSocket = DjsConnect()): Connection {
   let latest: IOAgent | undefined;
+  let penalty = 0;
   let config: IOConfig | undefined;
 
   const awaiting = new Set(["you", "map", "config"]);
@@ -88,6 +89,13 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
   const spawned = new Promise<IOAgent>((resolve) => {
     socket.onYou((next) => {
       latest = next;
+      if (next.penalty < penalty) {
+        log.warn(
+          { penalty: next.penalty, charged: penalty - next.penalty },
+          "penalised",
+        );
+        penalty = next.penalty;
+      }
       if (next.x !== undefined && next.y !== undefined)
         resolve(arrived("you", next));
     });
