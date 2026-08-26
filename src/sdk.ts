@@ -1,10 +1,12 @@
 import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent } from "@unitn-asa/deliveroo-js-sdk/types/IOAgent.js";
 import type { IOConfig } from "@unitn-asa/deliveroo-js-sdk/types/IOConfig.js";
+import type { IOParcel } from "@unitn-asa/deliveroo-js-sdk/types/IOParcel.js";
+import type { IOSensing } from "@unitn-asa/deliveroo-js-sdk/types/IOSensing.js";
 import type { IOTile } from "@unitn-asa/deliveroo-js-sdk/types/IOTile.js";
 import { log } from "./log.js";
 
-export type { IOAgent, IOConfig, IOTile };
+export type { IOAgent, IOConfig, IOParcel, IOSensing, IOTile };
 
 export type Direction = Parameters<
   ReturnType<typeof DjsConnect>["emitMove"]
@@ -45,6 +47,8 @@ export interface GameSocket {
   onMap(
     listener: (width: number, height: number, tiles: IOTile[]) => void,
   ): void;
+  onTile(listener: (tile: IOTile) => void): void;
+  onSensing(listener: (sensing: IOSensing) => void): void;
   emitMove(direction: Direction): Promise<Position | false>;
   emitPickup(): Promise<Parcel[]>;
   emitPutdown(selected?: string[]): Promise<Parcel[]>;
@@ -68,6 +72,10 @@ export interface Connection {
   ready(): Promise<World>;
   /** Latest `you` snapshot; `undefined` until the first one arrives. */
   me(): IOAgent | undefined;
+  /** A tile changed type after the initial map. */
+  onTile(listener: (tile: IOTile) => void): void;
+  /** Everything in range right now; what a snapshot omits is out of sight, not gone. */
+  onSensing(listener: (sensing: IOSensing) => void): void;
   /** Position on success, `false` if the server refused, `undefined` if the ack was lost. */
   move(direction: Direction): Promise<Position | false | undefined>;
   pickup(): Promise<Parcel[] | undefined>;
@@ -251,6 +259,8 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
   return {
     ready: () => world,
     me: () => latest,
+    onTile: (listener) => socket.onTile(listener),
+    onSensing: (listener) => socket.onSensing(listener),
     move: (direction) =>
       action({ action: "move", direction }, () => socket.emitMove(direction)),
     pickup: () => action({ action: "pickup" }, () => socket.emitPickup()),
