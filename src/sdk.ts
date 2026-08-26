@@ -22,8 +22,10 @@ export interface Position {
   y: number;
 }
 
-export interface Parcel {
-  id: string;
+// `id`, `x` and `y` are getters on the server's Parcel, and JSON drops them.
+export interface PickedParcel {
+  xy: Position;
+  reward: number;
 }
 
 export interface World {
@@ -39,8 +41,8 @@ export interface GameSocket {
     listener: (width: number, height: number, tiles: IOTile[]) => void,
   ): void;
   emitMove(direction: Direction): Promise<Position | false>;
-  emitPickup(): Promise<Parcel[]>;
-  emitPutdown(selected?: string[]): Promise<Parcel[]>;
+  emitPickup(): Promise<PickedParcel[]>;
+  emitPutdown(selected?: string[]): Promise<PickedParcel[]>;
   disconnect(): void;
 }
 
@@ -51,8 +53,8 @@ export interface Connection {
   me(): IOAgent | undefined;
   /** Position on success, `false` if the server refused, `undefined` if the ack was lost. */
   move(direction: Direction): Promise<Position | false | undefined>;
-  pickup(): Promise<Parcel[] | undefined>;
-  putdown(ids?: string[]): Promise<Parcel[] | undefined>;
+  pickup(): Promise<PickedParcel[] | undefined>;
+  putdown(ids?: string[]): Promise<PickedParcel[] | undefined>;
   disconnect(): void;
 }
 

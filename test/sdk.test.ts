@@ -212,6 +212,32 @@ describe("lost acks", () => {
   });
 });
 
+describe("acknowledged parcels", () => {
+  // Captured from a local server.
+  const picked = [
+    {
+      xy: { x: 10, y: 0 },
+      carriedBy: { xy: { x: 10, y: 0 }, score: 0, penalty: -81 },
+      reward: 21,
+      expired: false,
+    },
+  ];
+
+  test("says where a pickup happened and what it was worth", async () => {
+    const game = connect(fakeSocket({ emitPickup: async () => picked }));
+    const acknowledged = await game.pickup();
+    expect(acknowledged?.[0]?.xy).toEqual({ x: 10, y: 0 });
+    expect(acknowledged?.[0]?.reward).toBe(21);
+  });
+
+  test("says what a delivery scored", async () => {
+    const delivered = [{ xy: { x: 0, y: 0 }, carriedBy: null, reward: 20 }];
+    const game = connect(fakeSocket({ emitPutdown: async () => delivered }));
+    const acknowledged = await game.putdown();
+    expect(acknowledged?.reduce((sum, p) => sum + p.reward, 0)).toBe(20);
+  });
+});
+
 describe("delegation", () => {
   test("forwards the selected ids to putdown", async () => {
     const seen: (string[] | undefined)[] = [];
