@@ -46,6 +46,7 @@ function fakeSocket(overrides: Partial<GameSocket> = {}): GameSocket {
     emitPickup: async () => [],
     emitPutdown: async () => [],
     emitSay: async () => "successful",
+    emitAsk: async () => ({ answered: true }),
     emitShout: async () => "successful",
     onMsg: () => {},
     disconnect: () => {},
@@ -340,5 +341,46 @@ describe("outgoing messages", () => {
     const moved = game.move("up");
     await expect(game.say("b", "still talking")).resolves.toBe(true);
     expect(moved).toBeInstanceOf(Promise);
+  });
+});
+
+describe("asking", () => {
+  test("resolves with the answer", async () => {
+    const asked: unknown[] = [];
+    const game = connect(
+      fakeSocket({
+        emitAsk: async (toId, payload) => {
+          asked.push([toId, payload]);
+          return { at: { x: 1, y: 2 } };
+        },
+      }),
+    );
+
+    await expect(game.ask("b", { q: "where?" })).resolves.toEqual({
+      at: { x: 1, y: 2 },
+    });
+    expect(asked).toEqual([["b", { q: "where?" }]]);
+  });
+
+  test("reads the server's `timeout` as no answer", async () => {
+    const game = connect(fakeSocket({ emitAsk: async () => "timeout" }));
+    await expect(game.ask("b", "?")).resolves.toBeUndefined();
+  });
+
+  test("gives up on an emit that never settles", async () => {
+    vi.useFakeTimers();
+    const game = connect(fakeSocket({ emitAsk: () => new Promise(() => {}) }));
+
+    const asked = game.ask("b", "?");
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(asked).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  test("does not wait for an action in flight", async () => {
+    const game = connect(fakeSocket({ emitMove: () => new Promise(() => {}) }));
+
+    void game.move("up");
+    await expect(game.ask("b", "?")).resolves.toEqual({ answered: true });
   });
 });

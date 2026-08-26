@@ -50,6 +50,7 @@ export interface GameSocket {
   emitPutdown(selected?: string[]): Promise<Parcel[]>;
   // Both answer 'successful'; emitShout is typed `Promise<{any}>` (DjsClientSocket.js:192).
   emitSay(toId: string, payload: unknown): Promise<unknown>;
+  emitAsk(toId: string, payload: unknown): Promise<unknown>;
   emitShout(payload: unknown): Promise<unknown>;
   onMsg(
     listener: (
@@ -73,6 +74,8 @@ export interface Connection {
   putdown(ids?: string[]): Promise<Parcel[] | undefined>;
   /** `true` once the server has taken the message, `undefined` if it never answered. */
   say(toId: string, payload: unknown): Promise<boolean | undefined>;
+  /** The answer, or `undefined`: unanswered, too late and no such agent are one case. */
+  ask(toId: string, payload: unknown): Promise<unknown>;
   /** Heard by every connected agent, opponents included. */
   shout(payload: unknown): Promise<boolean | undefined>;
   /** Every `say`, `ask` and `shout` addressed to us, whoever sent it. */
@@ -91,6 +94,9 @@ const LOST_ACK = /timed out|has been disconnected/i;
 const READY_TIMEOUT_MS = 10_000;
 
 const SPEECH_TIMEOUT_MS = 1_000;
+
+// The server already gives the recipient a second, so this only catches a lost ack.
+const ASK_TIMEOUT_MS = 2_000;
 
 // Chat emits carry no ack timeout of their own, so an unanswered say never returns.
 function deadline<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
@@ -222,6 +228,18 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
     return status === "successful";
   }
 
+  async function question(toId: string, payload: unknown): Promise<unknown> {
+    const fields = { action: "ask", to: toId, payload };
+    const reply = await deadline(socket.emitAsk(toId, payload), ASK_TIMEOUT_MS);
+    // The server answers 'timeout' for a recipient that stayed silent, was late, or never existed.
+    if (reply === undefined || reply === "timeout") {
+      log.warn(fields, "unanswered");
+      return undefined;
+    }
+    log.info({ ...fields, reply }, "asked");
+    return reply;
+  }
+
   return {
     ready: () => world,
     me: () => latest,
@@ -234,6 +252,7 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
       speak({ action: "say", to: toId, payload }, () =>
         socket.emitSay(toId, payload),
       ),
+    ask: question,
     shout: (payload) =>
       speak({ action: "shout", payload }, () => socket.emitShout(payload)),
     onMessage: (listener) => {
