@@ -5,6 +5,7 @@ import {
   type GameSocket,
   type IOAgent,
   type IOConfig,
+  type IOSensing,
   type IOTile,
   type Message,
 } from "../src/sdk.js";
@@ -43,6 +44,8 @@ function fakeSocket(overrides: Partial<GameSocket> = {}): GameSocket {
     onConfig: (listener) => listener(configWith(0)),
     onYou: (listener) => listener(agent({ x: 1, y: 2 })),
     onMap: (listener) => listener(1, 1, tiles),
+    onTile: () => {},
+    onSensing: () => {},
     emitMove: async () => ({ x: 0, y: 0 }),
     emitPickup: async () => [],
     emitPutdown: async () => [],
@@ -261,6 +264,28 @@ describe("delegation", () => {
     await game.putdown(["p1", "p2"]);
     await game.putdown();
     expect(seen).toEqual([["p1", "p2"], undefined]);
+  });
+
+  test("forwards sensing snapshots", () => {
+    const snapshot: IOSensing = {
+      positions: [{ x: 1, y: 2 }],
+      agents: [agent({ x: 3, y: 4 })],
+      parcels: [{ id: "p1", x: 1, y: 2, reward: 7 }],
+      crates: [],
+    };
+    const sensed: IOSensing[] = [];
+    connect(
+      fakeSocket({ onSensing: (listener) => listener(snapshot) }),
+    ).onSensing((sensing) => sensed.push(sensing));
+    expect(sensed).toEqual([snapshot]);
+  });
+
+  test("forwards tile changes", () => {
+    const changed: IOTile[] = [];
+    connect(
+      fakeSocket({ onTile: (listener) => listener({ x: 0, y: 0, type: "2" }) }),
+    ).onTile((tile) => changed.push(tile));
+    expect(changed).toEqual([{ x: 0, y: 0, type: "2" }]);
   });
 
   test("forwards disconnect", () => {
