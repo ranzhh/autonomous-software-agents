@@ -54,13 +54,22 @@ if (mapFile) {
 
 async function mint(agent: string, run: number): Promise<string> {
   const name = runs > 1 ? `bench-${agent}-${run}` : `bench-${agent}`;
-  const response = await fetch(`${env.HOST}/api/tokens`, {
-    method: "POST",
-    headers: { name, team: env.TEAM },
-  });
-  if (!response.ok) throw new Error(`minting for ${agent}: ${response.status}`);
-  const { token } = (await response.json()) as { token: string };
-  return token;
+  // A transient DNS failure here would kill the whole race; retry twice.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch(`${env.HOST}/api/tokens`, {
+        method: "POST",
+        headers: { name, team: env.TEAM },
+      });
+      if (!response.ok)
+        throw new Error(`minting for ${agent}: ${response.status}`);
+      const { token } = (await response.json()) as { token: string };
+      return token;
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
 }
 
 const stamp = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
