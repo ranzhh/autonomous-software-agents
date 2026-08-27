@@ -1,5 +1,12 @@
-import type { IOClockEvent } from "@unitn-asa/deliveroo-js-sdk/types/IOClockEvent.js";
-import type { IOAgent, IOConfig, IOSensing, IOTile, World } from "./sdk.js";
+import { key } from "./position.js";
+import {
+  type IOAgent,
+  type IOConfig,
+  type IOSensing,
+  type IOTile,
+  msOf,
+  type World,
+} from "./sdk.js";
 
 export interface ParcelBelief {
   id: string;
@@ -32,29 +39,15 @@ export interface Beliefs {
   changed(tile: IOTile): void;
 }
 
-const TICK_MS: Record<Exclude<IOClockEvent, "frame" | "infinite">, number> = {
-  "1s": 1_000,
-  "2s": 2_000,
-  "5s": 5_000,
-  "10s": 10_000,
-  "1m": 60_000,
-  "1h": 3_600_000,
-};
-
 export function decayedReward(
   parcel: ParcelBelief,
   config: IOConfig,
   now: number,
 ): number {
-  const event = config.GAME.parcels.decaying_event;
-  if (event === "infinite") return parcel.reward;
-  const ms = event === "frame" ? config.CLOCK : TICK_MS[event];
+  // An infinite tick divides the elapsed time into zero passed ticks.
+  const ms = msOf(config.GAME.parcels.decaying_event, config.CLOCK);
   return parcel.reward - Math.floor((now - parcel.seenAt) / ms);
 }
-
-// Carried parcels ride their carrier, so mid-move coordinates can be fractional.
-const key = (x: number, y: number): string =>
-  `${Math.round(x)},${Math.round(y)}`;
 
 export function believe(world: World): Beliefs {
   const { config } = world;
