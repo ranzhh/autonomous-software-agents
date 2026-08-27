@@ -1,7 +1,7 @@
 import type { Beliefs } from "./beliefs.js";
 import type { Grid } from "./grid.js";
 import { MOVES, sameTile } from "./position.js";
-import { DIRECTIONS, type Direction } from "./sdk.js";
+import { DIRECTIONS, type Direction, type Position } from "./sdk.js";
 
 export type Action = Direction | "pickup" | "putdown";
 
@@ -36,6 +36,11 @@ export function naive(
   if (spawn) return spawn;
 
   // On a spawner with nothing to do: drift, so new parcels come into view.
+  return drift(grid, at);
+}
+
+/** A random step into any open neighbouring tile; undefined when boxed in. */
+export function drift(grid: Grid, at: Position): Direction | undefined {
   const open = DIRECTIONS.filter((d) =>
     grid.walkable({ x: at.x + MOVES[d].dx, y: at.y + MOVES[d].dy }),
   );
