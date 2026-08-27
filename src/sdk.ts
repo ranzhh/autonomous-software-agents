@@ -49,6 +49,9 @@ export interface GameSocket {
   ): void;
   onTile(listener: (tile: IOTile) => void): void;
   onSensing(listener: (sensing: IOSensing) => void): void;
+  onDisconnect(listener: () => void): void;
+  /** Whether socket.io will reconnect on its own; false once it has given up. */
+  readonly active: boolean;
   emitMove(direction: Direction): Promise<Position | false>;
   emitPickup(): Promise<Parcel[]>;
   emitPutdown(selected?: string[]): Promise<Parcel[]>;
@@ -76,6 +79,8 @@ export interface Connection {
   onTile(listener: (tile: IOTile) => void): void;
   /** Everything in range right now; what a snapshot omits is out of sight, not gone. */
   onSensing(listener: (sensing: IOSensing) => void): void;
+  /** Triggered when the connection is permanently lost, but not by `disconnect`. */
+  onLost(listener: () => void): void;
   /** Position on success, `false` if the server refused, `undefined` if the ack was lost. */
   move(direction: Direction): Promise<Position | false | undefined>;
   pickup(): Promise<Parcel[] | undefined>;
@@ -120,6 +125,14 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
   let latest: IOAgent | undefined;
   let penalty = 0;
   let config: IOConfig | undefined;
+  let closing = false;
+  let lost: (() => void) | undefined;
+
+  socket.onDisconnect(() => {
+    if (closing || socket.active) return;
+    log.error("the server closed the connection");
+    lost?.();
+  });
 
   const awaiting = new Set(["you", "map", "config"]);
   function arrived<T>(name: string, value: T): T {
@@ -261,6 +274,9 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
     me: () => latest,
     onTile: (listener) => socket.onTile(listener),
     onSensing: (listener) => socket.onSensing(listener),
+    onLost: (listener) => {
+      lost = listener;
+    },
     move: (direction) =>
       action({ action: "move", direction }, () => socket.emitMove(direction)),
     pickup: () => action({ action: "pickup" }, () => socket.emitPickup()),
@@ -276,6 +292,9 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
     onMessage: (listener) => {
       audience.add(listener);
     },
-    disconnect: () => socket.disconnect(),
+    disconnect: () => {
+      closing = true;
+      socket.disconnect();
+    },
   };
 }
