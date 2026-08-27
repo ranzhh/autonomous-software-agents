@@ -26,7 +26,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 const pace = config.GAME.player.movement_duration;
-const capacity = config.GAME.player.capacity;
+// The server never refuses a pickup, so the configured capacity is unused.
+const capacity = Number.MAX_SAFE_INTEGER;
 const deliveries = tiles.filter((tile) => tile.type === "2");
 
 function position(): Position {
