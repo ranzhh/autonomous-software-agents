@@ -14,7 +14,7 @@ deploy agent="dumb" identity=agent:
 token agent="dumb" *flags="":
     @npx tsx --env-file-if-exists=.env src/token.ts {{agent}} {{flags}}
 
-# Race agents under fresh identities: just bench dumb naive --time 120 --map m.json
+# Race agents under fresh identities: just bench dumb naive --time 120 --runs 3
 bench *args="dumb naive":
     @npx tsx --env-file-if-exists=.env src/bench.ts {{args}}
 
