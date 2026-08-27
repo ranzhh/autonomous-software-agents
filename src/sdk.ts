@@ -1,5 +1,6 @@
 import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent } from "@unitn-asa/deliveroo-js-sdk/types/IOAgent.js";
+import type { IOClockEvent } from "@unitn-asa/deliveroo-js-sdk/types/IOClockEvent.js";
 import type { IOConfig } from "@unitn-asa/deliveroo-js-sdk/types/IOConfig.js";
 import type { IOParcel } from "@unitn-asa/deliveroo-js-sdk/types/IOParcel.js";
 import type { IOSensing } from "@unitn-asa/deliveroo-js-sdk/types/IOSensing.js";
@@ -7,6 +8,22 @@ import type { IOTile } from "@unitn-asa/deliveroo-js-sdk/types/IOTile.js";
 import { log } from "./log.js";
 
 export type { IOAgent, IOConfig, IOParcel, IOSensing, IOTile };
+
+const TICK_MS: Record<Exclude<IOClockEvent, "frame" | "infinite">, number> = {
+  "1s": 1_000,
+  "2s": 2_000,
+  "5s": 5_000,
+  "10s": 10_000,
+  "1m": 60_000,
+  "1h": 3_600_000,
+};
+
+/** The length of a server clock event; a frame lasts `frameMs` (config.CLOCK). */
+export function msOf(event: IOClockEvent, frameMs: number): number {
+  if (event === "infinite") return Infinity;
+  if (event === "frame") return frameMs;
+  return TICK_MS[event];
+}
 
 export type Direction = Parameters<
   ReturnType<typeof DjsConnect>["emitMove"]
