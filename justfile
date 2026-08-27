@@ -14,6 +14,10 @@ deploy agent="dumb" identity=agent:
 token agent="dumb" *flags="":
     @npx tsx --env-file-if-exists=.env src/token.ts {{agent}} {{flags}}
 
+# Race agents under fresh identities: just bench dumb naive --time 120 --map m.json
+bench *args="dumb naive":
+    @npx tsx --env-file-if-exists=.env src/bench.ts {{args}}
+
 # Stop a deployed agent
 stop identity="dumb":
     @pkill -f "src/agents/[^ ]*[.]ts {{identity}}" && echo "stopped {{identity}}" || echo "{{identity}} is not deployed"
