@@ -5,6 +5,7 @@ import { env } from "./env.js";
 
 // usage: bench.ts <agent>... [--time seconds] [--map file.json]
 // Each agent gets a fresh identity, so every run starts from score 0.
+// --map only works against a local host: it rewrites the shared board.
 
 interface Sample {
   t: number;
@@ -29,6 +30,11 @@ for (const agent of agents)
     throw new Error(`no such agent: src/agents/${agent}.ts`);
 
 if (mapFile) {
+  // The map is global server state: a patch repaints the board for every
+  // connected client, not just this race. Refuse anything but a local host.
+  const host = new URL(env.HOST).hostname;
+  if (host !== "localhost" && host !== "127.0.0.1")
+    throw new Error(`--map refuses a non-local host: ${env.HOST}`);
   if (!env.ADMIN_TOKEN) throw new Error("--map needs ADMIN_TOKEN in the env");
   const map = JSON.parse(readFileSync(mapFile, "utf8"));
   const response = await fetch(`${env.HOST}/api/configs`, {
