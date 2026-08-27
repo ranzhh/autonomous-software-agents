@@ -127,9 +127,27 @@ const races = runs > 1 ? `${runs} runs of ${seconds}s` : `${seconds}s`;
 console.log(`${agents.join(" vs ")}, ${races} on ${env.HOST}`);
 
 const all: Map<string, Sample[]>[] = [];
+
+// Rewritten after every run, so a crash mid-series loses one run at most.
+const save = (): void =>
+  writeFileSync(
+    `${dir}/scores.csv`,
+    [
+      "agent,run,t,score",
+      ...all.flatMap((series, i) =>
+        agents.flatMap((agent) =>
+          (series.get(agent) ?? []).map(
+            (s) => `${agent},${i + 1},${s.t.toFixed(1)},${s.score}`,
+          ),
+        ),
+      ),
+    ].join("\n"),
+  );
+
 for (let run = 1; run <= runs; run++) {
   const series = await race(run);
   all.push(series);
+  save();
   if (runs > 1) console.log(`run ${run}/${runs}`);
   table(
     agents.map((agent) => [
@@ -152,18 +170,5 @@ if (runs > 1) {
   );
 }
 
-writeFileSync(
-  `${dir}/scores.csv`,
-  [
-    "agent,run,t,score",
-    ...all.flatMap((series, i) =>
-      agents.flatMap((agent) =>
-        (series.get(agent) ?? []).map(
-          (s) => `${agent},${i + 1},${s.t.toFixed(1)},${s.score}`,
-        ),
-      ),
-    ),
-  ].join("\n"),
-);
 console.log(`series in ${dir}/scores.csv, logs in ${dir}/`);
 process.exit(0);
