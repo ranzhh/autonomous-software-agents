@@ -1,4 +1,4 @@
-import { key } from "./position.js";
+import { key, MOVES } from "./position.js";
 import type { Direction, IOTile, Position } from "./sdk.js";
 
 export interface Route {
@@ -15,13 +15,6 @@ export interface Grid {
   /** One breadth-first search toward the nearest of the targets. */
   route(...targets: Position[]): Route;
 }
-
-const MOVES: Record<Direction, { dx: number; dy: number }> = {
-  up: { dx: 0, dy: 1 },
-  down: { dx: 0, dy: -1 },
-  right: { dx: 1, dy: 0 },
-  left: { dx: -1, dy: 0 },
-};
 
 // An arrow tile may only be left in the direction it points; entry is free.
 const ONE_WAY: Partial<Record<string, Direction>> = {
