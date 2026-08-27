@@ -291,6 +291,36 @@ describe("lost acks", () => {
   });
 });
 
+describe("acknowledged parcels", () => {
+  // Captured from a local server. `carriedBy` and `expired` ride along
+  // undeclared; one capture is not enough to pin their types.
+  const picked = [
+    {
+      xy: { x: 10, y: 0 },
+      carriedBy: { xy: { x: 10, y: 0 }, score: 0, penalty: -81 },
+      reward: 21,
+      expired: false,
+    },
+  ];
+
+  test("says where a pickup happened and what it was worth", async () => {
+    const game = connect(fakeSocket({ emitPickup: async () => picked }));
+    expect(await game.pickup()).toEqual([
+      expect.objectContaining({ xy: { x: 10, y: 0 }, reward: 21 }),
+    ]);
+  });
+
+  test("totals what a delivery scored", async () => {
+    const delivered = [
+      { xy: { x: 0, y: 0 }, reward: 20 },
+      { xy: { x: 0, y: 0 }, reward: 13 },
+    ];
+    const game = connect(fakeSocket({ emitPutdown: async () => delivered }));
+    const acknowledged = await game.putdown();
+    expect(acknowledged?.reduce((sum, p) => sum + p.reward, 0)).toBe(33);
+  });
+});
+
 describe("delegation", () => {
   test("forwards the selected ids to putdown", async () => {
     const seen: (string[] | undefined)[] = [];

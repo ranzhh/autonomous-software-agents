@@ -1,0 +1,22 @@
+diff --git a/node_modules/@unitn-asa/deliveroo-js-sdk/src/client/DjsClientSocket.js b/node_modules/@unitn-asa/deliveroo-js-sdk/src/client/DjsClientSocket.js
+index e58bc4c..0179930 100644
+--- a/node_modules/@unitn-asa/deliveroo-js-sdk/src/client/DjsClientSocket.js
++++ b/node_modules/@unitn-asa/deliveroo-js-sdk/src/client/DjsClientSocket.js
+@@ -212,7 +212,7 @@ export class DjsClientSocket extends Socket {
+     /**
+      * Pick up all parcels in the agent tile.
+      * When completed, resolves to the array of picked up parcels
+-     * @returns { Promise < { id:string } [] > } array of picked up parcels
++     * @returns { Promise < { xy: { x:number, y:number }, reward:number } [] > } array of picked up parcels
+      */
+     async emitPickup (  ) {
+         return this.emitAndResolveOnAck( 'pickup' );
+@@ -224,7 +224,7 @@ export class DjsClientSocket extends Socket {
+      * - if no list is provided: put down all parcels
+      * When completed, resolves to the list of dropped parcels
+      * @param { string [] = } selected array of parcels id to drop
+-     * @returns { Promise < { id:string } [] >}
++     * @returns { Promise < { xy: { x:number, y:number }, reward:number } [] >}
+      */
+     async emitPutdown ( selected = [] ) {
+         return this.emitAndResolveOnAck( 'putdown', selected );
