@@ -14,14 +14,18 @@ export type Action = Direction | "pickup" | "putdown";
 export type Intention =
   | { kind: "fetch"; id: string }
   | { kind: "home" }
+  | { kind: "scout"; x: number; y: number }
   | { kind: "explore" };
 
 /** A challenger must beat the held intention by this factor, against dithering. */
 const MARGIN = 1.2;
 
-const same = (a: Intention, b: Intention): boolean =>
-  a.kind === b.kind &&
-  (a.kind !== "fetch" || b.kind !== "fetch" || a.id === b.id);
+const same = (a: Intention, b: Intention): boolean => {
+  if (a.kind === "fetch" && b.kind === "fetch") return a.id === b.id;
+  if (a.kind === "scout" && b.kind === "scout")
+    return a.x === b.x && a.y === b.y;
+  return a.kind === b.kind;
+};
 
 /**
  * Choose what to pursue: the option delivering the most reward, decayed over
@@ -68,6 +72,27 @@ export function deliberate(
       ),
     });
 
+  // Parcels spawn one per generation tick on a random empty spawner tile, so
+  // a spawner unseen for n ticks holds a parcel with chance ~n/spawners.
+  // Generation stops at the board cap: the chance never exceeds max/spawners.
+  const tick = msOf(config.GAME.parcels.generation_event, config.CLOCK);
+  const cap = config.GAME.parcels.max / grid.spawners.length;
+  for (const s of grid.spawners) {
+    const stale = now - beliefs.observedAt(s.x, s.y);
+    const holds = Math.min(1, cap, stale / (tick * grid.spawners.length));
+    if (holds <= 0) continue;
+    const steps = grid.route(s).distance(at) + home.distance(s);
+    options.push({
+      intention: { kind: "scout", x: s.x, y: s.y },
+      utility:
+        holds * delivered([config.GAME.parcels.reward_avg], steps) +
+        delivered(
+          carried.map((c) => c.reward),
+          steps,
+        ),
+    });
+  }
+
   const best = options.reduce((a, b) => (b.utility > a.utility ? b : a), {
     intention: { kind: "explore" } as Intention,
     utility: 0,
@@ -101,6 +126,7 @@ export function pursue(
     const target = loose.find((p) => p.id === intention.id);
     return target && grid.route(target).step(at);
   }
+  if (intention.kind === "scout") return grid.route(intention).step(at);
   return grid.route(...grid.spawners).step(at) ?? drift(grid, at);
 }
 

@@ -8,7 +8,12 @@ import { tilesOf } from "./tiles.js";
 const config = {
   CLOCK: 50,
   GAME: {
-    parcels: { decaying_event: "1s" },
+    parcels: {
+      decaying_event: "1s",
+      generation_event: "1s",
+      reward_avg: 30,
+      max: 25,
+    },
     // One reward point decays per step: utilities come out in round numbers.
     player: { movement_duration: 1_000 },
   },
@@ -161,5 +166,42 @@ describe("deliberation", () => {
       { carriedBy: "me" },
     ]);
     expect(pursue({ kind: "home" }, beliefs, board, 0)).toBe("putdown");
+  });
+});
+
+describe("scouting", () => {
+  // Delivery at x0; spawners at x3 and x7.
+  const arms = ["23313331"];
+
+  test("scouts the near spawner when none was ever seen", () => {
+    const { beliefs, board } = setup(arms, { x: 1, y: 0 });
+    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+      kind: "scout",
+      x: 3,
+      y: 0,
+    });
+  });
+
+  test("patrols on to the other spawner after looking at one", () => {
+    const { beliefs, board } = setup(arms, { x: 1, y: 0 });
+    beliefs.seen(
+      { positions: [{ x: 3, y: 0 }], agents: [], parcels: [], crates: [] },
+      0,
+    );
+    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+      kind: "scout",
+      x: 7,
+      y: 0,
+    });
+  });
+
+  test("fetches a known parcel over scouting for a likely one", () => {
+    const { beliefs, board } = setup(arms, { x: 1, y: 0 }, [
+      { x: 2, reward: 30 },
+    ]);
+    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+      kind: "fetch",
+      id: "p0",
+    });
   });
 });
