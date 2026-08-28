@@ -2,7 +2,7 @@ import { run } from "../agent.js";
 import { believe } from "../beliefs.js";
 import { grid } from "../grid.js";
 import { log } from "../log.js";
-import { naive } from "../plans.js";
+import { drift, naive } from "../plans.js";
 import { key } from "../position.js";
 
 await run(async (game, world) => {
@@ -35,9 +35,14 @@ await run(async (game, world) => {
       const delivered = await game.putdown();
       log.info({ delivered }, "delivered");
     } else {
-      // A refused move means something is in the way; look again after one beat.
       const landed = await game.move(action);
-      if (landed === false) await pace();
+      // A refusal replans into the same blocked step, since the grid knows
+      // nothing of whoever is in the way; sidestep so the route re-forms.
+      if (landed === false) {
+        const { x = 0, y = 0 } = beliefs.me();
+        const aside = drift(board, { x, y }) ?? action;
+        if ((await game.move(aside)) === false) await pace();
+      }
     }
     const me = game.me();
     if (me) beliefs.moved(me);
