@@ -34,6 +34,8 @@ export interface Beliefs {
   parcels(now?: number): ParcelBelief[];
   agents(): AgentBelief[];
   carrying(now?: number): ParcelBelief[];
+  /** When the tile was last in view; -Infinity when it never was. */
+  observedAt(x: number, y: number): number;
 
   seen(sensing: IOSensing, at?: number): void;
   moved(me: IOAgent): void;
@@ -60,8 +62,10 @@ export function believe(world: World): Beliefs {
   const grid = new Map(world.tiles.map((tile) => [key(tile.x, tile.y), tile]));
   const parcels = new Map<string, ParcelBelief>();
   const agents = new Map<string, AgentBelief>();
+  const observed = new Map<string, number>();
 
   function seen(sensing: IOSensing, at = Date.now()): void {
+    for (const p of sensing.positions) observed.set(key(p.x, p.y), at);
     for (const p of sensing.parcels)
       parcels.set(p.id, {
         id: p.id,
@@ -113,6 +117,7 @@ export function believe(world: World): Beliefs {
     me: () => self,
     tileAt: (x, y) => grid.get(key(x, y)),
     parcels: (now = Date.now()) => current(now),
+    observedAt: (x, y) => observed.get(key(x, y)) ?? Number.NEGATIVE_INFINITY,
     agents: () => [...agents.values()],
     carrying: (now = Date.now()) =>
       current(now).filter((p) => p.carriedBy === self.id),
