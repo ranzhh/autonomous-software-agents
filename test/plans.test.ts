@@ -1,13 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { type Beliefs, believe } from "../src/beliefs.js";
 import { type Grid, grid } from "../src/grid.js";
-import { naive } from "../src/plans.js";
+import { deliberate, naive, pursue } from "../src/plans.js";
 import type { IOAgent, IOConfig, IOParcel } from "../src/sdk.js";
 import { tilesOf } from "./tiles.js";
 
 const config = {
   CLOCK: 50,
-  GAME: { parcels: { decaying_event: "1s" } },
+  GAME: {
+    parcels: { decaying_event: "1s" },
+    // One reward point decays per step: utilities come out in round numbers.
+    player: { movement_duration: 1_000 },
+  },
 } as unknown as IOConfig;
 
 const me = (x: number, y: number): IOAgent => ({
@@ -79,5 +83,83 @@ describe("the naive plan", () => {
   test("drifts off an empty spawner", () => {
     const { beliefs, board } = setup(["31"], { x: 1, y: 0 });
     expect(naive(beliefs, board, 0)).toBe("left");
+  });
+});
+
+describe("deliberation", () => {
+  const corridor = ["2333333333"];
+
+  test("fetches the nearer parcel when decay eats the richer one", () => {
+    const { beliefs, board } = setup(corridor, { x: 3, y: 0 }, [
+      { x: 4, reward: 12 },
+      { x: 9, reward: 20 },
+    ]);
+    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+      kind: "fetch",
+      id: "p0",
+    });
+  });
+
+  test("holds its target against a challenger inside the margin", () => {
+    const { beliefs, board } = setup(corridor, { x: 3, y: 0 }, [
+      { x: 4, reward: 10 },
+      { x: 5, reward: 13 },
+    ]);
+    const held = { kind: "fetch", id: "p0" } as const;
+    expect(deliberate(beliefs, board, config, held, 0)).toBe(held);
+  });
+
+  test("switches when the challenger clears the margin", () => {
+    const { beliefs, board } = setup(corridor, { x: 3, y: 0 }, [
+      { x: 4, reward: 10 },
+      { x: 5, reward: 17 },
+    ]);
+    const held = { kind: "fetch", id: "p0" } as const;
+    expect(deliberate(beliefs, board, config, held, 0)).toEqual({
+      kind: "fetch",
+      id: "p1",
+    });
+  });
+
+  test("drops a vanished target", () => {
+    const { beliefs, board } = setup(corridor, { x: 3, y: 0 }, [
+      { x: 4, reward: 10 },
+    ]);
+    const held = { kind: "fetch", id: "ghost" } as const;
+    expect(deliberate(beliefs, board, config, held, 0)).toEqual({
+      kind: "fetch",
+      id: "p0",
+    });
+  });
+
+  test("carries a heavy load home past a distant parcel", () => {
+    const { beliefs, board } = setup(corridor, { x: 1, y: 0 }, [
+      { x: 1, reward: 30, carriedBy: "me" },
+      { x: 9, reward: 10 },
+    ]);
+    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+      kind: "home",
+    });
+  });
+
+  test("explores when nothing pays", () => {
+    const { beliefs, board } = setup(corridor, { x: 3, y: 0 });
+    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+      kind: "explore",
+    });
+  });
+
+  test("pursues nothing when the target is gone", () => {
+    const { beliefs, board } = setup(corridor, { x: 3, y: 0 });
+    expect(pursue({ kind: "fetch", id: "ghost" }, beliefs, board, 0)).toBe(
+      undefined,
+    );
+  });
+
+  test("drops the load at home", () => {
+    const { beliefs, board } = setup(corridor, { x: 0, y: 0 }, [
+      { carriedBy: "me" },
+    ]);
+    expect(pursue({ kind: "home" }, beliefs, board, 0)).toBe("putdown");
   });
 });
