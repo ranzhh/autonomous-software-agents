@@ -45,11 +45,17 @@ await run(async (game, { me, tiles, config }) => {
     return to.y > from.y ? "up" : "down";
   }
 
+  // Acks outrun sensing; the overlay stops re-picks against stale snapshots.
+  const picked = new Set<string>();
+  const dropped = new Set<string>();
+
   while (true) {
     const at = position();
     const parcels = sensing?.parcels ?? [];
-    const carried = parcels.filter((parcel) => parcel.carriedBy === me.id);
-    const loose = parcels.filter((parcel) => !parcel.carriedBy);
+    const carried = parcels.filter(
+      (p) => picked.has(p.id) || (p.carriedBy === me.id && !dropped.has(p.id)),
+    );
+    const loose = parcels.filter((p) => !p.carriedBy && !picked.has(p.id));
 
     const underfoot = loose.find(
       (parcel) => parcel.x === at.x && parcel.y === at.y,
@@ -60,10 +66,18 @@ await run(async (game, { me, tiles, config }) => {
 
     if (carried.length > 0 && onDelivery) {
       await game.putdown();
+      for (const p of carried) {
+        dropped.add(p.id);
+        picked.delete(p.id);
+      }
       continue;
     }
     if (underfoot && carried.length < capacity) {
-      await game.pickup();
+      const taken = await game.pickup();
+      // The ack names no ids; what was loose on this tile is what was taken.
+      if (taken && taken.length > 0)
+        for (const p of loose)
+          if (p.x === at.x && p.y === at.y) picked.add(p.id);
       continue;
     }
 
