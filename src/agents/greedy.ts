@@ -13,8 +13,8 @@ await run(async (game, { me, tiles, config }) => {
   });
 
   const pace = config.GAME.player.movement_duration;
-  // The server never refuses a pickup, so the configured capacity is unused.
-  const capacity = Number.MAX_SAFE_INTEGER;
+  // Weighing decay against the trip is deliberate's job; greedy just fills up.
+  const capacity = config.GAME.player.capacity;
   const deliveries = tiles.filter((tile) => tile.type === "2");
 
   function position(): Position {
