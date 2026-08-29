@@ -44,9 +44,13 @@ await run(async (game, world) => {
       await pace();
     } else if (action === "pickup") {
       const taken = await game.pickup();
+      beliefs.took(taken);
+      stale = true;
       log.info({ taken }, "picked up");
     } else if (action === "putdown") {
       const delivered = await game.putdown();
+      beliefs.gave();
+      stale = true;
       log.info({ delivered }, "delivered");
     } else {
       const landed = await game.move(action);
