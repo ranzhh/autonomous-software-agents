@@ -1,6 +1,6 @@
 {
-  "title": "bench",
-  "description": "Crossroads without NPCs, slow moves, decaying rewards: the bench regime",
+  "title": "scout",
+  "description": "The bench map starved of parcels: exploration decides the score",
   "maxPlayers": 10,
   "map": {
     "width": 25,
@@ -109,15 +109,15 @@
     ]
   },
   "parcels": {
-    "generation_event": "1s",
+    "generation_event": "2s",
     "decaying_event": "1s",
-    "max": 25,
+    "max": 6,
     "reward_avg": 30,
     "reward_variance": 2
   },
   "player": {
     "movement_duration": 500,
-    "observation_distance": 8,
+    "observation_distance": 4,
     "capacity": 1
   },
   "npcs": []
