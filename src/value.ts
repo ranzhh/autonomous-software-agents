@@ -2,6 +2,8 @@ import type { ParcelBelief } from "./beliefs.js";
 import type { Grid } from "./grid.js";
 import { type IOConfig, msOf, type Position } from "./sdk.js";
 
+export const MARGIN = 1.2;
+
 export interface Value {
   delivered(rewards: number[], steps: number): number;
 }

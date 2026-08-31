@@ -2,7 +2,7 @@ import type { AgentBelief, Beliefs, ParcelBelief } from "./beliefs.js";
 import type { Grid } from "./grid.js";
 import type { IOConfig, Position } from "./sdk.js";
 import { nearestOrder } from "./tour.js";
-import { priced, type Value, value } from "./value.js";
+import { MARGIN, priced, type Value, value } from "./value.js";
 
 export interface Batch {
   parcels: ParcelBelief[];
@@ -17,7 +17,7 @@ export function supersedes(
   batch: Batch,
   held: number | undefined,
   lost: boolean,
-  margin: number,
+  margin = MARGIN,
 ): Cause | undefined {
   if (lost) return "gone";
   // No tour to walk: nothing else will rebuild the commitment.

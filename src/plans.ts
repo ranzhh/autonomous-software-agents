@@ -2,11 +2,9 @@ import type { Beliefs } from "./beliefs.js";
 import type { Grid } from "./grid.js";
 import { sameTile } from "./position.js";
 import { type Direction, type IOConfig, msOf, type Position } from "./sdk.js";
-import { priced, value } from "./value.js";
+import { MARGIN, priced, value } from "./value.js";
 
 export type Action = Direction | "pickup" | "putdown";
-
-const MARGIN = 1.2;
 
 export type Intention =
   | { kind: "fetch"; id: string }
