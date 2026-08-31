@@ -3,7 +3,7 @@ import { grid } from "../src/grid.js";
 import { MOVES } from "../src/position.js";
 import type { Direction, Position } from "../src/sdk.js";
 import { type Mover, walker } from "../src/walk.js";
-import { tilesOf } from "./tiles.js";
+import { tilesOf } from "./world.js";
 
 function fake(
   start: Position,

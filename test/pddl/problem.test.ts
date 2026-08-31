@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { type Distance, positionOf, problem } from "../../src/pddl/problem.js";
-import { parcelOf } from "../tiles.js";
+import { parcelOf } from "../world.js";
 
 const manhattan: Distance = (from, to) =>
   Math.abs(from.x - to.x) + Math.abs(from.y - to.y);

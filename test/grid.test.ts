@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { grid } from "../src/grid.js";
-import { tilesOf } from "./tiles.js";
+import { tilesOf } from "./world.js";
 
 describe("route", () => {
   test("walls split the map", () => {

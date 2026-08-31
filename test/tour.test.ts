@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { grid } from "../src/grid.js";
 import { nearest } from "../src/tour.js";
-import { parcelOf, tilesOf } from "./tiles.js";
+import { parcelOf, tilesOf } from "./world.js";
 
 describe("the nearest-neighbour tour", () => {
   test("has nothing to plan without parcels", async () => {

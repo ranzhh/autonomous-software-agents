@@ -5,7 +5,7 @@ import { planning } from "../../src/pddl/planner.js";
 import { fastDownward } from "../../src/pddl/solver.js";
 import type { Position } from "../../src/sdk.js";
 import { nearest, type Tour } from "../../src/tour.js";
-import { parcelOf, tilesOf } from "../tiles.js";
+import { parcelOf, tilesOf } from "../world.js";
 
 const bin = process.env.DOWNWARD ?? ".solver/fast-downward.py";
 

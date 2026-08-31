@@ -3,7 +3,7 @@ import { grid } from "../../src/grid.js";
 import { planning } from "../../src/pddl/planner.js";
 import type { Solver } from "../../src/pddl/solver.js";
 import { nearest } from "../../src/tour.js";
-import { parcelOf, tilesOf } from "../tiles.js";
+import { parcelOf, tilesOf } from "../world.js";
 
 const answering = (...plan: string[]): Solver => ({
   solve: async () => plan,

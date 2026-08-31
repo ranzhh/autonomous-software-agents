@@ -3,7 +3,7 @@ import { type Beliefs, believe } from "../src/beliefs.js";
 import { type Grid, grid } from "../src/grid.js";
 import { deliberate, naive, pursue } from "../src/plans.js";
 import type { IOAgent, IOConfig, IOParcel } from "../src/sdk.js";
-import { tilesOf } from "./tiles.js";
+import { tilesOf } from "./world.js";
 
 const config = {
   CLOCK: 50,
