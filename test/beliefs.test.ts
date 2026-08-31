@@ -76,6 +76,49 @@ describe("parcels", () => {
   });
 });
 
+describe("my own actions", () => {
+  const underfoot = { id: "p0", x: 0, y: 0, reward: 30 };
+
+  test("a pickup carries what was believed underfoot", () => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ parcels: [underfoot] }), 0);
+    beliefs.took([{ xy: { x: 0, y: 0 }, reward: 30 }]);
+    expect(beliefs.carrying(0).map((p) => p.id)).toEqual(["p0"]);
+  });
+
+  test("an empty pickup forgets what was never there", () => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ parcels: [underfoot] }), 0);
+    beliefs.took([]);
+    expect(beliefs.parcels(0)).toEqual([]);
+  });
+
+  test("a lost pickup ack forgets too, rather than claim a carry", () => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ parcels: [underfoot] }), 0);
+    beliefs.took(undefined);
+    expect(beliefs.parcels(0)).toEqual([]);
+  });
+
+  test("a pickup leaves parcels on other tiles alone", () => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ parcels: [parcel] }), 0);
+    beliefs.took([]);
+    expect(beliefs.parcels(0).map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  test("a putdown lets go of the whole load", () => {
+    const beliefs = believe(world());
+    beliefs.seen(
+      sensing({ parcels: [{ ...underfoot, carriedBy: "me" }, parcel] }),
+      0,
+    );
+    beliefs.gave();
+    expect(beliefs.carrying(0)).toEqual([]);
+    expect(beliefs.parcels(0).map((p) => p.id)).toEqual(["p1"]);
+  });
+});
+
 describe("agents", () => {
   test("remembers by the same sight rule as parcels", () => {
     const rival: IOAgent = { ...me, id: "r1", name: "rival", x: 2, y: 2 };

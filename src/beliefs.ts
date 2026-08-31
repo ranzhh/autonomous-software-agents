@@ -1,10 +1,11 @@
-import { key } from "./position.js";
+import { key, sameTile } from "./position.js";
 import {
   type IOAgent,
   type IOConfig,
   type IOSensing,
   type IOTile,
   msOf,
+  type Parcel,
   type World,
 } from "./sdk.js";
 
@@ -37,6 +38,10 @@ export interface Beliefs {
   seen(sensing: IOSensing, at?: number): void;
   moved(me: IOAgent): void;
   changed(tile: IOTile): void;
+  /** A pickup ack: what was believed loose underfoot is carried, or was never there. */
+  took(taken: Parcel[] | undefined): void;
+  /** A putdown ack: nothing is carried any more. */
+  gave(): void;
 }
 
 export function decayedReward(
@@ -95,6 +100,15 @@ export function believe(world: World): Beliefs {
       .map((p) => ({ ...p, reward: decayedReward(p, config, now) }))
       .filter((p) => p.reward > 0);
 
+  function took(taken: Parcel[] | undefined): void {
+    const at = { x: self.x ?? 0, y: self.y ?? 0 };
+    for (const [id, p] of parcels) {
+      if (p.carriedBy || !sameTile(p, at)) continue;
+      if (taken && taken.length > 0) p.carriedBy = self.id;
+      else parcels.delete(id);
+    }
+  }
+
   return {
     me: () => self,
     tileAt: (x, y) => grid.get(key(x, y)),
@@ -108,6 +122,11 @@ export function believe(world: World): Beliefs {
     },
     changed: (tile) => {
       grid.set(key(tile.x, tile.y), tile);
+    },
+    took,
+    gave: () => {
+      for (const [id, p] of parcels)
+        if (p.carriedBy === self.id) parcels.delete(id);
     },
   };
 }
