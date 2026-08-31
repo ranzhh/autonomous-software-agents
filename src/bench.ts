@@ -77,10 +77,25 @@ const dir = `.run/bench/${stamp}`;
 mkdirSync(dir, { recursive: true });
 
 let children: ChildProcess[] = [];
+const stop = (): void => {
+  for (const child of children)
+    if (child.pid)
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        // The whole group already exited.
+      }
+};
 process.once("SIGINT", () => {
-  for (const child of children) child.kill("SIGTERM");
+  stop();
   process.exit(130);
 });
+process.once("SIGTERM", () => {
+  stop();
+  process.exit(143);
+});
+// A crash anywhere above still sweeps the current run's agents.
+process.once("exit", stop);
 
 async function race(run: number): Promise<Map<string, Sample[]>> {
   const t0 = Date.now();
@@ -90,6 +105,8 @@ async function race(run: number): Promise<Map<string, Sample[]>> {
   for (const agent of agents) {
     const child = spawn("npx", ["tsx", `src/agents/${agent}.ts`], {
       env: { ...process.env, TOKEN: await mint(agent, run) },
+      // Its own process group: killing only the npx wrapper orphans the agent.
+      detached: true,
     });
     children.push(child);
     series.set(agent, []);
@@ -111,7 +128,7 @@ async function race(run: number): Promise<Map<string, Sample[]>> {
   }
 
   await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-  for (const child of children) child.kill("SIGTERM");
+  stop();
   await new Promise((resolve) => setTimeout(resolve, 500));
   return series;
 }
