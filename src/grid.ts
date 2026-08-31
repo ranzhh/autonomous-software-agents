@@ -10,6 +10,8 @@ export interface Route {
 
 export interface Grid {
   walkable(p: Position): boolean;
+  /** The steps the server allows out of `at`, and where each lands. */
+  exits(at: Position): [Direction, Position][];
   deliveries: Position[];
   spawners: Position[];
   /** One breadth-first search toward the nearest of the targets. */
@@ -29,7 +31,7 @@ export function grid(tiles: IOTile[]): Grid {
   for (const tile of tiles)
     if (tile.type !== "0") walkables.set(key(tile.x, tile.y), tile);
 
-  function exits(tile: IOTile): [Direction, IOTile][] {
+  function leaving(tile: IOTile): [Direction, IOTile][] {
     const out: [Direction, IOTile][] = [];
     for (const [direction, { dx, dy }] of Object.entries(MOVES) as [
       Direction,
@@ -44,7 +46,7 @@ export function grid(tiles: IOTile[]): Grid {
   // Who can step onto each tile, honouring the arrows.
   const enters = new Map<string, IOTile[]>();
   for (const tile of walkables.values())
-    for (const [, to] of exits(tile)) {
+    for (const [, to] of leaving(tile)) {
       const at = key(to.x, to.y);
       enters.set(at, [...(enters.get(at) ?? []), tile]);
     }
@@ -78,7 +80,7 @@ export function grid(tiles: IOTile[]): Grid {
         const here = walkables.get(key(from.x, from.y));
         if (!here || distance(from) === 0 || distance(from) === Infinity)
           return undefined;
-        for (const [direction, to] of exits(here))
+        for (const [direction, to] of leaving(here))
           if (distance(to) === distance(from) - 1) return direction;
         return undefined;
       },
@@ -92,6 +94,14 @@ export function grid(tiles: IOTile[]): Grid {
 
   return {
     walkable: (p) => walkables.has(key(p.x, p.y)),
+    exits(at) {
+      const here = walkables.get(key(at.x, at.y));
+      if (!here) return [];
+      return leaving(here).map(([direction, to]): [Direction, Position] => [
+        direction,
+        { x: to.x, y: to.y },
+      ]);
+    },
     deliveries: positions("2"),
     spawners: positions("1"),
     route,

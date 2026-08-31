@@ -38,6 +38,40 @@ describe("route", () => {
 describe("the board", () => {
   const g = grid(tilesOf(["103", "320"]));
 
+  test("offers only the steps the server allows", () => {
+    expect(g.exits({ x: 0, y: 0 })).toEqual([
+      ["up", { x: 0, y: 1 }],
+      ["right", { x: 1, y: 0 }],
+    ]);
+    expect(g.exits({ x: 1, y: 1 })).toEqual([]);
+    expect(g.exits({ x: 9, y: 9 })).toEqual([]);
+  });
+
+  test("will not step into an arrow against itself", () => {
+    const arrows = grid(tilesOf(["3→3"]));
+
+    expect(arrows.exits({ x: 0, y: 0 })).toEqual([["right", { x: 1, y: 0 }]]);
+    expect(arrows.exits({ x: 2, y: 0 })).toEqual([]);
+
+    const back = grid(tilesOf(["3←3"]));
+
+    expect(back.exits({ x: 2, y: 0 })).toEqual([["left", { x: 1, y: 0 }]]);
+    expect(back.exits({ x: 0, y: 0 })).toEqual([]);
+  });
+
+  test("will not step into a vertical arrow against itself", () => {
+    // `↑` at (0,1): reachable from below, refused from above.
+    const up = grid(tilesOf(["3", "↑", "3"]));
+
+    expect(up.exits({ x: 0, y: 0 })).toEqual([["up", { x: 0, y: 1 }]]);
+    expect(up.exits({ x: 0, y: 2 })).toEqual([]);
+
+    const down = grid(tilesOf(["3", "↓", "3"]));
+
+    expect(down.exits({ x: 0, y: 2 })).toEqual([["down", { x: 0, y: 1 }]]);
+    expect(down.exits({ x: 0, y: 0 })).toEqual([]);
+  });
+
   test("knows what is walkable", () => {
     expect(g.walkable({ x: 0, y: 0 })).toBe(true);
     expect(g.walkable({ x: 2, y: 0 })).toBe(false);
