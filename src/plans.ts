@@ -165,9 +165,14 @@ export function naive(
 }
 
 /** A random step into any open neighbouring tile; undefined when boxed in. */
-export function drift(grid: Grid, at: Position): Direction | undefined {
-  const open = DIRECTIONS.filter((d) =>
-    grid.walkable({ x: at.x + MOVES[d].dx, y: at.y + MOVES[d].dy }),
-  );
+export function drift(
+  grid: Grid,
+  at: Position,
+  clear: (to: Position) => boolean = () => true,
+): Direction | undefined {
+  const open = DIRECTIONS.filter((d) => {
+    const to = { x: at.x + MOVES[d].dx, y: at.y + MOVES[d].dy };
+    return grid.walkable(to) && clear(to);
+  });
   return open[Math.floor(Math.random() * open.length)];
 }
