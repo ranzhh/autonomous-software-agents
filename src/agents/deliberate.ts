@@ -58,7 +58,7 @@ await run(async (game, world) => {
       // nothing of whoever is in the way; sidestep and reconsider.
       if (landed === false) {
         stale = true;
-        const { x = 0, y = 0 } = beliefs.me();
+        const { x, y } = beliefs.me();
         const aside = drift(board, { x, y }) ?? action;
         if ((await game.move(aside)) === false) await pace();
       }

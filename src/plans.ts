@@ -33,8 +33,7 @@ export function deliberate(
   held: Intention,
   now = Date.now(),
 ): Intention {
-  const me = beliefs.me();
-  const at = { x: me.x ?? 0, y: me.y ?? 0 };
+  const at = beliefs.me();
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
   const carried = beliefs.carrying(now);
 
@@ -104,8 +103,7 @@ export function pursue(
   grid: Grid,
   now = Date.now(),
 ): Action | undefined {
-  const me = beliefs.me();
-  const at = { x: me.x ?? 0, y: me.y ?? 0 };
+  const at = beliefs.me();
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
 
   // Whatever the intention, a loose parcel underfoot is free value.
@@ -134,8 +132,7 @@ export function naive(
   grid: Grid,
   now = Date.now(),
 ): Action | undefined {
-  const me = beliefs.me();
-  const at = { x: me.x ?? 0, y: me.y ?? 0 };
+  const at = beliefs.me();
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
 
   if (loose.some((p) => sameTile(p, at))) return "pickup";

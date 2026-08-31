@@ -6,6 +6,7 @@ import {
   type IOTile,
   msOf,
   type Parcel,
+  type Position,
   type World,
 } from "./sdk.js";
 
@@ -28,7 +29,7 @@ export interface AgentBelief {
 }
 
 export interface Beliefs {
-  me(): IOAgent;
+  me(): IOAgent & Position;
   tileAt(x: number, y: number): IOTile | undefined;
   /** Rewards decayed to `now`; parcels decayed to nothing are dropped. */
   parcels(now?: number): ParcelBelief[];
@@ -37,7 +38,7 @@ export interface Beliefs {
   /** When the tile was last in view; -Infinity when it never was. */
   observedAt(x: number, y: number): number;
 
-  seen(sensing: IOSensing, at?: number): void;
+  seen(sensing: IOSensing, now?: number): void;
   moved(me: IOAgent): void;
   changed(tile: IOTile): void;
   /** A pickup ack: what was believed loose underfoot is carried, or was never there. */
@@ -46,7 +47,7 @@ export interface Beliefs {
   gave(): void;
 }
 
-export function decayedReward(
+function decayedReward(
   parcel: ParcelBelief,
   config: IOConfig,
   now: number,
@@ -56,16 +57,22 @@ export function decayedReward(
   return parcel.reward - Math.floor((now - parcel.seenAt) / ms);
 }
 
+const settle = (me: IOAgent): IOAgent & Position => ({
+  ...me,
+  x: me.x ?? 0,
+  y: me.y ?? 0,
+});
+
 export function believe(world: World): Beliefs {
   const { config } = world;
-  let self = world.me;
+  let self = settle(world.me);
   const grid = new Map(world.tiles.map((tile) => [key(tile.x, tile.y), tile]));
   const parcels = new Map<string, ParcelBelief>();
   const agents = new Map<string, AgentBelief>();
   const observed = new Map<string, number>();
 
-  function seen(sensing: IOSensing, at = Date.now()): void {
-    for (const p of sensing.positions) observed.set(key(p.x, p.y), at);
+  function seen(sensing: IOSensing, now = Date.now()): void {
+    for (const p of sensing.positions) observed.set(key(p.x, p.y), now);
     for (const p of sensing.parcels)
       parcels.set(p.id, {
         id: p.id,
@@ -73,7 +80,7 @@ export function believe(world: World): Beliefs {
         y: p.y,
         carriedBy: p.carriedBy,
         reward: p.reward,
-        seenAt: at,
+        seenAt: now,
       });
     for (const a of sensing.agents)
       agents.set(a.id, {
@@ -81,7 +88,7 @@ export function believe(world: World): Beliefs {
         name: a.name,
         x: a.x ?? 0,
         y: a.y ?? 0,
-        seenAt: at,
+        seenAt: now,
       });
 
     // A memory on a tile we can see right now, yet absent from the snapshot, is gone.
@@ -96,7 +103,7 @@ export function believe(world: World): Beliefs {
       if (!reported.has(id) && visible.has(key(a.x, a.y))) agents.delete(id);
 
     for (const [id, p] of parcels)
-      if (decayedReward(p, config, at) <= 0) parcels.delete(id);
+      if (decayedReward(p, config, now) <= 0) parcels.delete(id);
   }
 
   const current = (now: number): ParcelBelief[] =>
@@ -105,9 +112,8 @@ export function believe(world: World): Beliefs {
       .filter((p) => p.reward > 0);
 
   function took(taken: Parcel[] | undefined): void {
-    const at = { x: self.x ?? 0, y: self.y ?? 0 };
     for (const [id, p] of parcels) {
-      if (p.carriedBy || !sameTile(p, at)) continue;
+      if (p.carriedBy || !sameTile(p, self)) continue;
       if (taken === undefined || taken.length > 0) p.carriedBy = self.id;
       else parcels.delete(id);
     }
@@ -123,7 +129,7 @@ export function believe(world: World): Beliefs {
       current(now).filter((p) => p.carriedBy === self.id),
     seen,
     moved: (me) => {
-      self = me;
+      self = settle(me);
     },
     changed: (tile) => {
       grid.set(key(tile.x, tile.y), tile);

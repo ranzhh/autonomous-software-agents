@@ -39,7 +39,7 @@ await run(async (game, world) => {
       // A refusal replans into the same blocked step, since the grid knows
       // nothing of whoever is in the way; sidestep so the route re-forms.
       if (landed === false) {
-        const { x = 0, y = 0 } = beliefs.me();
+        const { x, y } = beliefs.me();
         const aside = drift(board, { x, y }) ?? action;
         if ((await game.move(aside)) === false) await pace();
       }
