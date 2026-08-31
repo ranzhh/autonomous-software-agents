@@ -2,6 +2,7 @@ import type { Beliefs } from "./beliefs.js";
 import type { Grid } from "./grid.js";
 import { sameTile } from "./position.js";
 import { type Direction, type IOConfig, msOf, type Position } from "./sdk.js";
+import { priced, value } from "./value.js";
 
 export type Action = Direction | "pickup" | "putdown";
 
@@ -37,32 +38,19 @@ export function deliberate(
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
   const carried = beliefs.carrying(now);
 
-  // Reward each parcel sheds per step travelled; zero when rewards never decay.
-  const perStep =
-    config.GAME.player.movement_duration /
-    msOf(config.GAME.parcels.decaying_event, config.CLOCK);
-  const delivered = (rewards: number[], steps: number): number =>
-    Number.isFinite(steps)
-      ? rewards.reduce((sum, r) => sum + Math.max(0, r - steps * perStep), 0)
-      : 0;
+  const worth = value(config);
 
   const home = grid.route(...grid.deliveries);
   const options: { intention: Intention; utility: number }[] = [];
   if (carried.length > 0)
     options.push({
       intention: { kind: "home" },
-      utility: delivered(
-        carried.map((p) => p.reward),
-        home.distance(at),
-      ),
+      utility: priced(at, [], carried, grid, worth),
     });
   for (const p of loose)
     options.push({
       intention: { kind: "fetch", id: p.id },
-      utility: delivered(
-        [p.reward, ...carried.map((c) => c.reward)],
-        grid.route(p).distance(at) + home.distance(p),
-      ),
+      utility: priced(at, [p], carried, grid, worth),
     });
 
   // Parcels spawn one per generation tick on a random empty spawner tile, so
@@ -78,8 +66,8 @@ export function deliberate(
     options.push({
       intention: { kind: "scout", x: s.x, y: s.y },
       utility:
-        holds * delivered([config.GAME.parcels.reward_avg], steps) +
-        delivered(
+        holds * worth.delivered([config.GAME.parcels.reward_avg], steps) +
+        worth.delivered(
           carried.map((c) => c.reward),
           steps,
         ),
