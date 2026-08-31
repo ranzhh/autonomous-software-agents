@@ -30,16 +30,17 @@ await run(async (game, world) => {
   const planner = planning(fastDownward(env.DOWNWARD));
   const mine = world.me.id;
   const unreachable = new Map<string, number>();
-  const handed = new Set<string>();
 
-  const here = (): Position => {
-    const me = game.me() ?? world.me;
-    return { x: me.x ?? 0, y: me.y ?? 0 };
-  };
+  const here = (): Position => beliefs.me();
 
   const { walk, explore } = walker({
     here,
-    move: (direction) => game.move(direction),
+    move: async (direction) => {
+      const landed = await game.move(direction);
+      const me = game.me();
+      if (me) beliefs.moved(me);
+      return landed;
+    },
     pace: () =>
       new Promise((resolve) =>
         setTimeout(resolve, world.config.GAME.player.movement_duration),
@@ -49,10 +50,7 @@ await run(async (game, world) => {
   while (true) {
     const at = here();
     const now = Date.now();
-    const sensed = beliefs.parcels();
-    for (const id of handed)
-      if (!sensed.some((p) => p.id === id)) handed.delete(id);
-    const known = sensed.filter((p) => !handed.has(p.id));
+    const known = beliefs.parcels();
     const nearest = known
       .filter(
         (p) => !p.carriedBy && (unreachable.get(p.id) ?? 0) < now - DROPOUT,
@@ -95,13 +93,13 @@ await run(async (game, world) => {
       }
 
       if (stop.action === "pickup") {
-        log.info({ taken: await game.pickup() }, "picked up");
+        const taken = await game.pickup();
+        beliefs.took(taken);
+        log.info({ taken }, "picked up");
       } else {
         const delivered = await game.putdown();
+        beliefs.gave();
         log.info({ delivered }, "delivered");
-        if (delivered !== undefined && delivered.length > 0)
-          for (const p of beliefs.parcels())
-            if (p.carriedBy === mine) handed.add(p.id);
       }
     }
     if (abandoned) for (let leg = 0; leg < RETREAT; leg++) await explore(board);
