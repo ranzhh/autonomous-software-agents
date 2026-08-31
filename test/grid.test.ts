@@ -13,13 +13,15 @@ describe("route", () => {
     expect(home.step({ x: 2, y: 0 })).toBeUndefined();
   });
 
-  test("an arrow tile is a one-way street", () => {
-    const g = grid(tilesOf(["3←3"]));
-    const toLeftEnd = g.route({ x: 0, y: 0 });
-    const toRightEnd = g.route({ x: 2, y: 0 });
+  test("an arrow refuses the step against it, and no other", () => {
+    // `→` at (1,0), with its only perpendicular neighbour above it.
+    const g = grid(tilesOf(["030", "3→3"]));
 
-    expect(toLeftEnd.distance({ x: 2, y: 0 })).toBe(2);
-    expect(toRightEnd.distance({ x: 0, y: 0 })).toBe(Infinity);
+    expect(g.route({ x: 2, y: 0 }).distance({ x: 0, y: 0 })).toBe(2);
+    expect(g.route({ x: 0, y: 0 }).distance({ x: 2, y: 0 })).toBe(Infinity);
+    // Leaving an arrow sideways is not the tile's business, only entering it.
+    expect(g.route({ x: 1, y: 1 }).distance({ x: 0, y: 0 })).toBe(2);
+    expect(g.route({ x: 1, y: 1 }).step({ x: 1, y: 0 })).toBe("up");
   });
 
   test("routes to the nearest of many targets", () => {

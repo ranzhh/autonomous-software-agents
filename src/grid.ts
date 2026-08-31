@@ -16,12 +16,12 @@ export interface Grid {
   route(...targets: Position[]): Route;
 }
 
-// An arrow tile may only be left in the direction it points; entry is free.
-const ONE_WAY: Partial<Record<string, Direction>> = {
-  "↑": "up",
-  "↓": "down",
-  "→": "right",
-  "←": "left",
+// An arrow refuses only the step entering it against itself (Tile.js:90).
+const AGAINST: Partial<Record<string, Direction>> = {
+  "↑": "down",
+  "↓": "up",
+  "→": "left",
+  "←": "right",
 };
 
 export function grid(tiles: IOTile[]): Grid {
@@ -30,15 +30,13 @@ export function grid(tiles: IOTile[]): Grid {
     if (tile.type !== "0") walkables.set(key(tile.x, tile.y), tile);
 
   function exits(tile: IOTile): [Direction, IOTile][] {
-    const allowed = ONE_WAY[tile.type];
     const out: [Direction, IOTile][] = [];
     for (const [direction, { dx, dy }] of Object.entries(MOVES) as [
       Direction,
       { dx: number; dy: number },
     ][]) {
-      if (allowed && direction !== allowed) continue;
       const next = walkables.get(key(tile.x + dx, tile.y + dy));
-      if (next) out.push([direction, next]);
+      if (next && AGAINST[next.type] !== direction) out.push([direction, next]);
     }
     return out;
   }
