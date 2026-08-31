@@ -34,6 +34,35 @@ describe("route", () => {
     expect(home.step({ x: 0, y: 0 })).toBeUndefined();
   });
 
+  test("one field serves a target set however it is ordered", () => {
+    const g = grid(tilesOf(["23332"]));
+    const a = { x: 0, y: 0 };
+    const b = { x: 4, y: 0 };
+
+    expect(g.route(a, b)).toBe(g.route(b, a));
+  });
+
+  test("keeps the field it is still being asked for", () => {
+    const g = grid(tilesOf([`2${"3".repeat(299)}`]));
+    const kept = g.route({ x: 1, y: 0 });
+
+    for (let x = 2; x < 300; x++) {
+      g.route({ x, y: 0 });
+      g.route({ x: 1, y: 0 });
+    }
+
+    expect(g.route({ x: 1, y: 0 })).toBe(kept);
+  });
+
+  test("drops the field it has stopped being asked for", () => {
+    const g = grid(tilesOf([`2${"3".repeat(299)}`]));
+    const dropped = g.route({ x: 1, y: 0 });
+
+    for (let x = 2; x < 300; x++) g.route({ x, y: 0 });
+
+    expect(g.route({ x: 1, y: 0 })).not.toBe(dropped);
+  });
+
   test("targets it cannot stand on leave nowhere to go", () => {
     const g = grid(tilesOf(["23332"]));
 

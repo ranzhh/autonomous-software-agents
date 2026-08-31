@@ -30,6 +30,8 @@ const WALL = 0;
 const OPEN = 1;
 const NOWHERE = -1;
 
+const MEMO = 128;
+
 const STEPS = Object.entries(MOVES) as [
   Direction,
   { dx: number; dy: number },
@@ -124,8 +126,32 @@ export function grid(tiles: IOTile[]): Grid {
     filled[to] = slot + 1;
   });
 
+  // Nothing rewrites a board under a grid: a changed tile builds a new one.
+  const fields = new Map<string, Route>();
+
   function route(...targets: Position[]): Route {
-    const seeds = targets.map(index).filter(open);
+    const seeds = targets
+      .map(index)
+      .filter(open)
+      .sort((a, b) => a - b);
+    const at = seeds.join(" ");
+    const cached = fields.get(at);
+    if (cached) {
+      // Re-inserting makes the Map's insertion order a least-recently-used one.
+      fields.delete(at);
+      fields.set(at, cached);
+      return cached;
+    }
+    const built = build(seeds);
+    fields.set(at, built);
+    if (fields.size > MEMO) {
+      const coldest = fields.keys().next().value;
+      if (coldest !== undefined) fields.delete(coldest);
+    }
+    return built;
+  }
+
+  function build(seeds: number[]): Route {
     // Backwards, along the in-edges, so every tile learns its way to a target.
     const steps = new Int32Array(size).fill(NOWHERE);
     const queue = new Int32Array(size);
