@@ -1,4 +1,5 @@
 rundir := ".run"
+solverdir := ".solver"
 
 default:
     @just --list
@@ -17,6 +18,12 @@ token agent="dumb" *flags="":
 # Race agents under fresh identities: just bench dumb naive --time 120 --runs 3
 bench *args="dumb naive":
     @npx tsx --env-file-if-exists=.env src/bench.ts {{args}}
+
+# Clone and build the PDDL solver; without it the planner falls back to the greedy tour
+solver:
+    @test -d {{solverdir}} || git clone --depth 1 --branch release-24.06.1 https://github.com/aibasel/downward.git {{solverdir}}
+    @test -x {{solverdir}}/builds/release/bin/downward || (cd {{solverdir}} && ./build.py)
+    @echo "DOWNWARD={{solverdir}}/fast-downward.py"
 
 # Stop a deployed agent
 stop identity="dumb":

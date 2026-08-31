@@ -32,5 +32,8 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true
-  }
+  },
+
+  // The PDDL solver builds under .solver; CMake writes files named *.ts that are not TypeScript
+  "exclude": [".solver"]
 }
