@@ -33,6 +33,15 @@ describe("route", () => {
     expect(home.step({ x: 3, y: 0 })).toBe("right");
     expect(home.step({ x: 0, y: 0 })).toBeUndefined();
   });
+
+  test("targets it cannot stand on leave nowhere to go", () => {
+    const g = grid(tilesOf(["23332"]));
+
+    for (const nowhere of [g.route(), g.route({ x: 9, y: 9 })]) {
+      expect(nowhere.distance({ x: 1, y: 0 })).toBe(Infinity);
+      expect(nowhere.step({ x: 1, y: 0 })).toBeUndefined();
+    }
+  });
 });
 
 describe("the board", () => {

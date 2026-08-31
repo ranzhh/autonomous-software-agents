@@ -1,4 +1,4 @@
-import { key, MOVES } from "./position.js";
+import { MOVES } from "./position.js";
 import type { Direction, IOTile, Position } from "./sdk.js";
 
 export interface Route {
@@ -19,91 +19,170 @@ export interface Grid {
 }
 
 // An arrow refuses only the step entering it against itself (Tile.js:90).
-const AGAINST: Partial<Record<string, Direction>> = {
+const AGAINST: Partial<Record<IOTile["type"], Direction>> = {
   "↑": "down",
   "↓": "up",
   "→": "left",
   "←": "right",
 };
 
-export function grid(tiles: IOTile[]): Grid {
-  const walkables = new Map<string, IOTile>();
-  for (const tile of tiles)
-    if (tile.type !== "0") walkables.set(key(tile.x, tile.y), tile);
+const WALL = 0;
+const OPEN = 1;
+const NOWHERE = -1;
 
-  function leaving(tile: IOTile): [Direction, IOTile][] {
-    const out: [Direction, IOTile][] = [];
-    for (const [direction, { dx, dy }] of Object.entries(MOVES) as [
-      Direction,
-      { dx: number; dy: number },
-    ][]) {
-      const next = walkables.get(key(tile.x + dx, tile.y + dy));
-      if (next && AGAINST[next.type] !== direction) out.push([direction, next]);
-    }
-    return out;
+const STEPS = Object.entries(MOVES) as [
+  Direction,
+  { dx: number; dy: number },
+][];
+const DX = Int8Array.from(STEPS, ([, move]) => move.dx);
+const DY = Int8Array.from(STEPS, ([, move]) => move.dy);
+
+type Cells = Int32Array | Int8Array | Uint8Array;
+
+const read = (cells: Cells, at: number): number => cells[at] as number;
+
+export function grid(tiles: IOTile[]): Grid {
+  let width = 0;
+  let height = 0;
+  for (const tile of tiles) {
+    width = Math.max(width, Math.round(tile.x) + 1);
+    height = Math.max(height, Math.round(tile.y) + 1);
+  }
+  const size = width * height;
+
+  const kind = new Uint8Array(size);
+  // The direction this tile refuses to be entered from, as an index into STEPS.
+  const refuses = new Int8Array(size).fill(NOWHERE);
+  const deliveries: Position[] = [];
+  const spawners: Position[] = [];
+
+  for (const tile of tiles) {
+    if (tile.type === "0") continue;
+    const x = Math.round(tile.x);
+    const y = Math.round(tile.y);
+    if (x < 0 || y < 0 || x >= width || y >= height) continue;
+
+    const at = y * width + x;
+    const first = read(kind, at) === WALL;
+    const against = AGAINST[tile.type];
+    refuses[at] =
+      against === undefined ? NOWHERE : STEPS.findIndex(([d]) => d === against);
+    kind[at] = OPEN;
+    if (!first) continue;
+    if (tile.type === "2") deliveries.push({ x, y });
+    else if (tile.type === "1") spawners.push({ x, y });
   }
 
-  // Who can step onto each tile, honouring the arrows.
-  const enters = new Map<string, IOTile[]>();
-  for (const tile of walkables.values())
-    for (const [, to] of leaving(tile)) {
-      const at = key(to.x, to.y);
-      enters.set(at, [...(enters.get(at) ?? []), tile]);
-    }
+  const index = ({ x, y }: Position): number => {
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    return cx < 0 || cy < 0 || cx >= width || cy >= height
+      ? NOWHERE
+      : cy * width + cx;
+  };
+
+  const spot = (cell: number): Position => {
+    const x = cell % width;
+    return { x, y: (cell - x) / width };
+  };
+
+  const open = (at: number): boolean =>
+    at !== NOWHERE && read(kind, at) !== WALL;
+
+  const exit = (x: number, y: number, d: number): number => {
+    const tx = x + read(DX, d);
+    const ty = y + read(DY, d);
+    if (tx < 0 || ty < 0 || tx >= width || ty >= height) return NOWHERE;
+    const to = ty * width + tx;
+    return read(kind, to) === WALL || read(refuses, to) === d ? NOWHERE : to;
+  };
+
+  const eachExit = (visit: (from: number, to: number) => void): void => {
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const from = y * width + x;
+        if (read(kind, from) === WALL) continue;
+        for (let d = 0; d < STEPS.length; d++) {
+          const to = exit(x, y, d);
+          if (to !== NOWHERE) visit(from, to);
+        }
+      }
+  };
+
+  // Who can step onto each tile: one flat array, with a slice per tile.
+  const slices = new Int32Array(size + 1);
+  eachExit((_, to) => {
+    slices[to + 1] = read(slices, to + 1) + 1;
+  });
+  for (let at = 0; at < size; at++)
+    slices[at + 1] = read(slices, at + 1) + read(slices, at);
+  const enters = new Int32Array(read(slices, size));
+  const filled = Int32Array.from(slices.subarray(0, size));
+  eachExit((from, to) => {
+    const slot = read(filled, to);
+    enters[slot] = from;
+    filled[to] = slot + 1;
+  });
 
   function route(...targets: Position[]): Route {
-    // Flood from the targets against the arrows, so each tile learns its way there.
-    const distances = new Map<string, number>();
-    let frontier = targets
-      .map((t) => walkables.get(key(t.x, t.y)))
-      .filter((tile) => tile !== undefined);
-    for (const tile of frontier) distances.set(key(tile.x, tile.y), 0);
+    const seeds = targets.map(index).filter(open);
+    // Backwards, along the in-edges, so every tile learns its way to a target.
+    const steps = new Int32Array(size).fill(NOWHERE);
+    const queue = new Int32Array(size);
+    let tail = 0;
+    for (const seed of seeds)
+      if (read(steps, seed) === NOWHERE) {
+        steps[seed] = 0;
+        queue[tail++] = seed;
+      }
 
-    for (let steps = 1; frontier.length > 0; steps++) {
-      const next: IOTile[] = [];
-      for (const tile of frontier)
-        for (const from of enters.get(key(tile.x, tile.y)) ?? []) {
-          const at = key(from.x, from.y);
-          if (distances.has(at)) continue;
-          distances.set(at, steps);
-          next.push(from);
+    for (let head = 0; head < tail; head++) {
+      const at = read(queue, head);
+      const next = read(steps, at) + 1;
+      const last = read(slices, at + 1);
+      for (let e = read(slices, at); e < last; e++) {
+        const from = read(enters, e);
+        if (read(steps, from) === NOWHERE) {
+          steps[from] = next;
+          queue[tail++] = from;
         }
-      frontier = next;
+      }
     }
 
-    const distance = (from: Position): number =>
-      distances.get(key(from.x, from.y)) ?? Infinity;
+    const reached = (at: number): number =>
+      at === NOWHERE || read(steps, at) === NOWHERE
+        ? Infinity
+        : read(steps, at);
 
     return {
-      distance,
+      distance: (from) => reached(index(from)),
       step(from) {
-        const here = walkables.get(key(from.x, from.y));
-        if (!here || distance(from) === 0 || distance(from) === Infinity)
-          return undefined;
-        for (const [direction, to] of leaving(here))
-          if (distance(to) === distance(from) - 1) return direction;
+        const at = index(from);
+        const here = reached(at);
+        if (here === 0 || here === Infinity) return undefined;
+        const { x, y } = spot(at);
+        for (const [d, [direction]] of STEPS.entries())
+          if (reached(exit(x, y, d)) === here - 1) return direction;
         return undefined;
       },
     };
   }
 
-  const positions = (type: IOTile["type"]): Position[] =>
-    [...walkables.values()]
-      .filter((tile) => tile.type === type)
-      .map(({ x, y }) => ({ x, y }));
-
   return {
-    walkable: (p) => walkables.has(key(p.x, p.y)),
+    walkable: (p) => open(index(p)),
     exits(at) {
-      const here = walkables.get(key(at.x, at.y));
-      if (!here) return [];
-      return leaving(here).map(([direction, to]): [Direction, Position] => [
-        direction,
-        { x: to.x, y: to.y },
-      ]);
+      const from = index(at);
+      if (!open(from)) return [];
+      const { x, y } = spot(from);
+      const out: [Direction, Position][] = [];
+      for (const [d, [direction]] of STEPS.entries()) {
+        const to = exit(x, y, d);
+        if (to !== NOWHERE) out.push([direction, spot(to)]);
+      }
+      return out;
     },
-    deliveries: positions("2"),
-    spawners: positions("1"),
+    deliveries,
+    spawners,
     route,
   };
 }
