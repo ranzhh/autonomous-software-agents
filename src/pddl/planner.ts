@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
-import type { Grid, Route } from "../grid.js";
+import type { Grid } from "../grid.js";
 import { key, sameTile } from "../position.js";
 import type { Position } from "../sdk.js";
 import { destination, nearest, type Planner, type Tour } from "../tour.js";
-import { type Distance, positionOf, problem } from "./problem.js";
+import { positionOf, problem } from "./problem.js";
 import type { Solver } from "./solver.js";
 
 const domain = readFileSync(new URL("domain.pddl", import.meta.url), "utf8");
@@ -40,22 +40,12 @@ function nearby(from: Position, parcels: Position[], grid: Grid): Position[] {
   return [...chosen.values()];
 }
 
-function distances(tiles: Position[], grid: Grid): Distance {
-  const routes = new Map<string, Route>();
-  for (const tile of tiles) {
-    const at = key(tile.x, tile.y);
-    if (!routes.has(at)) routes.set(at, grid.route(tile));
-  }
-  return (from, to) => routes.get(key(to.x, to.y))?.distance(from) ?? Infinity;
-}
-
 export const planning = (solver: Solver): Planner => ({
   async plan(from, parcels, grid) {
     const deliveries = nearby(from, parcels, grid);
-    const dist = distances([from, ...parcels, ...deliveries], grid);
     const plan = await solver.solve(
       domain,
-      problem(from, parcels, deliveries, dist),
+      problem(from, parcels, deliveries, (f, t) => grid.route(t).distance(f)),
     );
 
     const stops = plan && tourOf(plan);
