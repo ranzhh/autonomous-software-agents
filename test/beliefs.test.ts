@@ -93,11 +93,11 @@ describe("my own actions", () => {
     expect(beliefs.parcels(0)).toEqual([]);
   });
 
-  test("a lost pickup ack forgets too, rather than claim a carry", () => {
+  test("a lost pickup ack credits the carry, unlike an empty one", () => {
     const beliefs = believe(world());
     beliefs.seen(sensing({ parcels: [underfoot] }), 0);
     beliefs.took(undefined);
-    expect(beliefs.parcels(0)).toEqual([]);
+    expect(beliefs.carrying(0).map((p) => p.id)).toEqual(["p0"]);
   });
 
   test("a pickup leaves parcels on other tiles alone", () => {

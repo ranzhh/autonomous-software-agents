@@ -108,7 +108,7 @@ export function believe(world: World): Beliefs {
     const at = { x: self.x ?? 0, y: self.y ?? 0 };
     for (const [id, p] of parcels) {
       if (p.carriedBy || !sameTile(p, at)) continue;
-      if (taken && taken.length > 0) p.carriedBy = self.id;
+      if (taken === undefined || taken.length > 0) p.carriedBy = self.id;
       else parcels.delete(id);
     }
   }
