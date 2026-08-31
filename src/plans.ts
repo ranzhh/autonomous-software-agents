@@ -1,13 +1,7 @@
 import type { Beliefs } from "./beliefs.js";
 import type { Grid } from "./grid.js";
-import { MOVES, sameTile } from "./position.js";
-import {
-  DIRECTIONS,
-  type Direction,
-  type IOConfig,
-  msOf,
-  type Position,
-} from "./sdk.js";
+import { sameTile } from "./position.js";
+import { type Direction, type IOConfig, msOf, type Position } from "./sdk.js";
 
 export type Action = Direction | "pickup" | "putdown";
 
@@ -170,9 +164,6 @@ export function drift(
   at: Position,
   clear: (to: Position) => boolean = () => true,
 ): Direction | undefined {
-  const open = DIRECTIONS.filter((d) => {
-    const to = { x: at.x + MOVES[d].dx, y: at.y + MOVES[d].dy };
-    return grid.walkable(to) && clear(to);
-  });
-  return open[Math.floor(Math.random() * open.length)];
+  const open = grid.exits(at).filter(([, to]) => clear(to));
+  return open[Math.floor(Math.random() * open.length)]?.[0];
 }
