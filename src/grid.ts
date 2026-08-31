@@ -9,7 +9,6 @@ export interface Route {
 }
 
 export interface Grid {
-  walkable(p: Position): boolean;
   /** The steps the server allows out of `at`, and where each lands. */
   exits(at: Position): [Direction, Position][];
   deliveries: Position[];
@@ -195,7 +194,6 @@ export function grid(tiles: IOTile[]): Grid {
   }
 
   return {
-    walkable: (p) => open(index(p)),
     exits(at) {
       const from = index(at);
       if (!open(from)) return [];

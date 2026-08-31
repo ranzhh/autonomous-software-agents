@@ -133,11 +133,7 @@ export function naive(
   return drift(grid, at);
 }
 
-export function drift(
-  grid: Grid,
-  at: Position,
-  clear: (to: Position) => boolean = () => true,
-): Direction | undefined {
-  const open = grid.exits(at).filter(([, to]) => clear(to));
+export function drift(grid: Grid, at: Position): Direction | undefined {
+  const open = grid.exits(at);
   return open[Math.floor(Math.random() * open.length)]?.[0];
 }

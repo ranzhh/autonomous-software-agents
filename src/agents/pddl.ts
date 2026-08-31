@@ -3,14 +3,17 @@ import { believe } from "../beliefs.js";
 import { env } from "../env.js";
 import { grid } from "../grid.js";
 import { log } from "../log.js";
+import { mover } from "../move.js";
 import { planning } from "../pddl/planner.js";
 import { fastDownward } from "../pddl/solver.js";
-import { key } from "../position.js";
+import { key, sameTile } from "../position.js";
 import type { Position } from "../sdk.js";
-import { walker } from "../walk.js";
+import { destination } from "../tour.js";
 
 const CANDIDATES = 6;
+const REFUSALS = 3;
 const RETREAT = 3;
+const STALE = 30_000;
 const DROPOUT = 30_000;
 
 await run(async (game, world) => {
@@ -29,26 +32,55 @@ await run(async (game, world) => {
 
   const planner = planning(fastDownward(env.DOWNWARD));
   const mine = world.me.id;
+  const visited = new Map<string, number>();
   const unreachable = new Map<string, number>();
 
-  const here = (): Position => beliefs.me();
+  const move = mover(
+    game,
+    beliefs,
+    () => board,
+    world.config.GAME.player.movement_duration,
+  );
 
-  const { walk, explore } = walker({
-    here,
-    move: async (direction) => {
-      const landed = await game.move(direction);
-      const me = game.me();
-      if (me) beliefs.moved(me);
-      return landed;
-    },
-    pace: () =>
-      new Promise((resolve) =>
-        setTimeout(resolve, world.config.GAME.player.movement_duration),
-      ),
-  });
+  async function walk(to: Position): Promise<boolean> {
+    const route = board.route(to);
+    let refused = 0;
+    while (!sameTile(beliefs.me(), to)) {
+      const next = route.step(beliefs.me());
+      if (next === undefined) return false;
+      if (await move.step(next)) continue;
+      if (++refused > REFUSALS) return false;
+      if (!(await move.sidestep(next, route))) {
+        await move.pace();
+        refused++;
+      }
+    }
+    return true;
+  }
+
+  async function explore(): Promise<void> {
+    const at = beliefs.me();
+    const now = Date.now();
+    visited.set(key(at.x, at.y), now);
+    const stale = board.spawners.filter(
+      (s) => (visited.get(key(s.x, s.y)) ?? 0) < now - STALE,
+    );
+
+    const route = board.route(...stale);
+    const next = route.step(at);
+    if (next !== undefined) {
+      if (await move.step(next)) return;
+      const target = destination(route, at);
+      if (target) visited.set(key(target.x, target.y), now);
+    }
+
+    const open = move.open(at);
+    const aside = open[Math.floor(Math.random() * open.length)];
+    if (aside === undefined || !(await move.step(aside[0]))) await move.pace();
+  }
 
   while (true) {
-    const at = here();
+    const at = beliefs.me();
     const now = Date.now();
     const known = beliefs.parcels();
     const nearest = known
@@ -68,7 +100,7 @@ await run(async (game, world) => {
         ? await planner.plan(at, candidates, board)
         : undefined;
     if (tour === undefined) {
-      await explore(board);
+      await explore();
       continue;
     }
 
@@ -86,7 +118,7 @@ await run(async (game, world) => {
       const gone =
         stop.action === "pickup" &&
         !beliefs.parcels().some((p) => p.id === stop.parcel);
-      if (gone || !(await walk(stop.at, board))) {
+      if (gone || !(await walk(stop.at))) {
         if (stop.action === "pickup") unreachable.set(stop.parcel, Date.now());
         abandoned = true;
         break;
@@ -102,6 +134,6 @@ await run(async (game, world) => {
         log.info({ delivered }, "delivered");
       }
     }
-    if (abandoned) for (let leg = 0; leg < RETREAT; leg++) await explore(board);
+    if (abandoned) for (let leg = 0; leg < RETREAT; leg++) await explore();
   }
 });

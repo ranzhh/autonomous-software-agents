@@ -110,12 +110,6 @@ describe("the board", () => {
     expect(down.exits({ x: 0, y: 0 })).toEqual([]);
   });
 
-  test("knows what is walkable", () => {
-    expect(g.walkable({ x: 0, y: 0 })).toBe(true);
-    expect(g.walkable({ x: 2, y: 0 })).toBe(false);
-    expect(g.walkable({ x: 9, y: 9 })).toBe(false);
-  });
-
   test("lists deliveries and spawners", () => {
     expect(g.deliveries).toEqual([{ x: 1, y: 0 }]);
     expect(g.spawners).toEqual([{ x: 0, y: 1 }]);
