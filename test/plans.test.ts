@@ -1,59 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { type Beliefs, believe } from "../src/beliefs.js";
-import { type Grid, grid } from "../src/grid.js";
-import { deliberate, naive, pursue } from "../src/plans.js";
-import type { IOAgent, IOConfig, IOParcel } from "../src/sdk.js";
-import { tilesOf } from "./world.js";
-
-const config = {
-  CLOCK: 50,
-  GAME: {
-    parcels: {
-      decaying_event: "1s",
-      generation_event: "1s",
-      reward_avg: 30,
-      max: 25,
-    },
-    // One reward point decays per step: utilities come out in round numbers.
-    player: { movement_duration: 1_000 },
-  },
-} as unknown as IOConfig;
-
-const me = (x: number, y: number): IOAgent => ({
-  id: "me",
-  name: "tester",
-  teamId: "t",
-  teamName: "team",
-  score: 0,
-  penalty: 0,
-  x,
-  y,
-});
-
-function setup(
-  rows: string[],
-  at: { x: number; y: number },
-  parcels: Partial<IOParcel>[] = [],
-): { beliefs: Beliefs; board: Grid } {
-  const tiles = tilesOf(rows);
-  const beliefs = believe({ me: me(at.x, at.y), tiles, config });
-  beliefs.seen(
-    {
-      positions: [],
-      agents: [],
-      crates: [],
-      parcels: parcels.map((p, i) => ({
-        id: `p${i}`,
-        x: 0,
-        y: 0,
-        reward: 30,
-        ...p,
-      })),
-    },
-    0,
-  );
-  return { beliefs, board: grid(tiles) };
-}
+import { decide, naive, pursue } from "../src/plans.js";
+import { config, setup } from "./world.js";
 
 describe("the naive plan", () => {
   test("grabs the parcel underfoot", () => {
@@ -99,7 +46,9 @@ describe("deliberation", () => {
       { x: 4, reward: 12 },
       { x: 9, reward: 20 },
     ]);
-    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+    expect(
+      decide(beliefs, board, config, { kind: "explore" }, 0).intention,
+    ).toEqual({
       kind: "fetch",
       id: "p0",
     });
@@ -111,7 +60,7 @@ describe("deliberation", () => {
       { x: 5, reward: 13 },
     ]);
     const held = { kind: "fetch", id: "p0" } as const;
-    expect(deliberate(beliefs, board, config, held, 0)).toBe(held);
+    expect(decide(beliefs, board, config, held, 0).intention).toBe(held);
   });
 
   test("switches when the challenger clears the margin", () => {
@@ -120,7 +69,7 @@ describe("deliberation", () => {
       { x: 5, reward: 17 },
     ]);
     const held = { kind: "fetch", id: "p0" } as const;
-    expect(deliberate(beliefs, board, config, held, 0)).toEqual({
+    expect(decide(beliefs, board, config, held, 0).intention).toEqual({
       kind: "fetch",
       id: "p1",
     });
@@ -131,7 +80,7 @@ describe("deliberation", () => {
       { x: 4, reward: 10 },
     ]);
     const held = { kind: "fetch", id: "ghost" } as const;
-    expect(deliberate(beliefs, board, config, held, 0)).toEqual({
+    expect(decide(beliefs, board, config, held, 0).intention).toEqual({
       kind: "fetch",
       id: "p0",
     });
@@ -142,14 +91,18 @@ describe("deliberation", () => {
       { x: 1, reward: 30, carriedBy: "me" },
       { x: 9, reward: 10 },
     ]);
-    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+    expect(
+      decide(beliefs, board, config, { kind: "explore" }, 0).intention,
+    ).toEqual({
       kind: "home",
     });
   });
 
   test("explores when nothing pays", () => {
     const { beliefs, board } = setup(corridor, { x: 3, y: 0 });
-    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+    expect(
+      decide(beliefs, board, config, { kind: "explore" }, 0).intention,
+    ).toEqual({
       kind: "explore",
     });
   });
@@ -175,7 +128,9 @@ describe("scouting", () => {
 
   test("scouts the near spawner when none was ever seen", () => {
     const { beliefs, board } = setup(arms, { x: 1, y: 0 });
-    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+    expect(
+      decide(beliefs, board, config, { kind: "explore" }, 0).intention,
+    ).toEqual({
       kind: "scout",
       x: 3,
       y: 0,
@@ -188,7 +143,9 @@ describe("scouting", () => {
       { positions: [{ x: 3, y: 0 }], agents: [], parcels: [], crates: [] },
       0,
     );
-    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+    expect(
+      decide(beliefs, board, config, { kind: "explore" }, 0).intention,
+    ).toEqual({
       kind: "scout",
       x: 7,
       y: 0,
@@ -199,7 +156,9 @@ describe("scouting", () => {
     const { beliefs, board } = setup(arms, { x: 1, y: 0 }, [
       { x: 2, reward: 30 },
     ]);
-    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+    expect(
+      decide(beliefs, board, config, { kind: "explore" }, 0).intention,
+    ).toEqual({
       kind: "fetch",
       id: "p0",
     });

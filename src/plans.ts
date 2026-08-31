@@ -6,14 +6,13 @@ import { priced, value } from "./value.js";
 
 export type Action = Direction | "pickup" | "putdown";
 
+const MARGIN = 1.2;
+
 export type Intention =
   | { kind: "fetch"; id: string }
   | { kind: "home" }
   | { kind: "scout"; x: number; y: number }
   | { kind: "explore" };
-
-/** A challenger must beat the held intention by this factor, against dithering. */
-const MARGIN = 1.2;
 
 const same = (a: Intention, b: Intention): boolean => {
   if (a.kind === "fetch" && b.kind === "fetch") return a.id === b.id;
@@ -22,22 +21,22 @@ const same = (a: Intention, b: Intention): boolean => {
   return a.kind === b.kind;
 };
 
-/**
- * Choose what to pursue: the option delivering the most reward, decayed over
- * the steps it takes to get it home. The held intention is kept unless a
- * challenger clears the margin; a vanished target is dropped outright.
- */
-export function deliberate(
+export interface Choice {
+  intention: Intention;
+  utility: number;
+  heldUtility: number;
+}
+
+export function decide(
   beliefs: Beliefs,
   grid: Grid,
   config: IOConfig,
   held: Intention,
   now = Date.now(),
-): Intention {
+): Choice {
   const at = beliefs.me();
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
   const carried = beliefs.carrying(now);
-
   const worth = value(config);
 
   const home = grid.route(...grid.deliveries);
@@ -53,9 +52,9 @@ export function deliberate(
       utility: priced(at, [p], carried, grid, worth),
     });
 
-  // Parcels spawn one per generation tick on a random empty spawner tile, so
-  // a spawner unseen for n ticks holds a parcel with chance ~n/spawners.
-  // Generation stops at the board cap: the chance never exceeds max/spawners.
+  // One parcel per tick lands on a random spawner holding none, so a spawner
+  // unseen for n ticks holds one with chance ~n/spawners, capped by max
+  // (ParcelSpawner.js:27-40).
   const tick = msOf(config.GAME.parcels.generation_event, config.CLOCK);
   const cap = config.GAME.parcels.max / grid.spawners.length;
   for (const s of grid.spawners) {
@@ -79,12 +78,12 @@ export function deliberate(
     utility: 0,
   });
   const kept = options.find((o) => same(o.intention, held));
+  const heldUtility = kept?.utility ?? 0;
   if (kept && kept.utility > 0 && best.utility <= kept.utility * MARGIN)
-    return held;
-  return best.intention;
+    return { intention: held, utility: heldUtility, heldUtility };
+  return { intention: best.intention, utility: best.utility, heldUtility };
 }
 
-/** The next action serving the intention; undefined when there is none. */
 export function pursue(
   intention: Intention,
   beliefs: Beliefs,
@@ -94,7 +93,6 @@ export function pursue(
   const at = beliefs.me();
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
 
-  // Whatever the intention, a loose parcel underfoot is free value.
   if (loose.some((p) => sameTile(p, at))) return "pickup";
 
   if (intention.kind === "home") {
@@ -110,11 +108,6 @@ export function pursue(
   return grid.route(...grid.spawners).step(at) ?? drift(grid, at);
 }
 
-/**
- * The next action, asked fresh after every completed one: grab what is here,
- * bring home what we carry, chase the nearest known parcel, else go where
- * parcels spawn. Undefined when boxed in.
- */
 export function naive(
   beliefs: Beliefs,
   grid: Grid,
@@ -139,11 +132,9 @@ export function naive(
   const spawn = grid.route(...grid.spawners).step(at);
   if (spawn) return spawn;
 
-  // On a spawner with nothing to do: drift, so new parcels come into view.
   return drift(grid, at);
 }
 
-/** A random step into any open neighbouring tile; undefined when boxed in. */
 export function drift(
   grid: Grid,
   at: Position,

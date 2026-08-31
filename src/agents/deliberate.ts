@@ -2,7 +2,7 @@ import { run } from "../agent.js";
 import { believe } from "../beliefs.js";
 import { grid } from "../grid.js";
 import { log } from "../log.js";
-import { deliberate, drift, type Intention, pursue } from "../plans.js";
+import { decide, drift, type Intention, pursue } from "../plans.js";
 import { key } from "../position.js";
 
 await run(async (game, world) => {
@@ -33,10 +33,18 @@ await run(async (game, world) => {
   while (true) {
     if (stale) {
       stale = false;
-      const next = deliberate(beliefs, board, world.config, intention);
-      if (next !== intention) {
-        intention = next;
-        log.info({ intention }, "intends");
+      const choice = decide(beliefs, board, world.config, intention);
+      if (choice.intention !== intention) {
+        log.info(
+          {
+            from: intention,
+            to: choice.intention,
+            was: choice.heldUtility,
+            now: choice.utility,
+          },
+          "switches",
+        );
+        intention = choice.intention;
       }
     }
     const action = pursue(intention, beliefs, board);
