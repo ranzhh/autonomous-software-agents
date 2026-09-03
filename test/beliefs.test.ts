@@ -231,3 +231,22 @@ describe("me", () => {
     expect(beliefs.me()).toMatchObject({ x: 4, y: 5 });
   });
 });
+
+describe("putting some down", () => {
+  test("only the listed parcels leave the hands", () => {
+    const beliefs = believe(world());
+    beliefs.seen(
+      sensing({
+        parcels: [
+          { ...parcel, id: "p0", carriedBy: "me" },
+          { ...parcel, id: "p1", carriedBy: "me" },
+        ],
+      }),
+      0,
+    );
+    beliefs.gave(["p0"]);
+    expect(beliefs.carrying(0).map((p) => p.id)).toEqual(["p1"]);
+    beliefs.gave();
+    expect(beliefs.carrying(0)).toEqual([]);
+  });
+});

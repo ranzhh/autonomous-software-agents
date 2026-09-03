@@ -53,8 +53,8 @@ export interface Beliefs {
   changed(tile: IOTile): void;
   /** A pickup ack: what was believed loose underfoot is carried, or was never there. */
   took(taken: Parcel[] | undefined): void;
-  /** A putdown ack: nothing is carried any more. */
-  gave(): void;
+  /** A putdown ack: the listed parcels, or everything, is carried no more. */
+  gave(ids?: string[]): void;
 }
 
 function decayedReward(
@@ -202,9 +202,10 @@ export function believe(world: World): Beliefs {
       grid.set(key(tile.x, tile.y), tile);
     },
     took,
-    gave: () => {
+    gave: (ids) => {
       for (const [id, p] of parcels)
-        if (p.carriedBy === self.id) parcels.delete(id);
+        if (p.carriedBy === self.id && (ids === undefined || ids.includes(id)))
+          parcels.delete(id);
     },
   };
 }
