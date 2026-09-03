@@ -7,7 +7,8 @@ const BLOCKED = 3_000;
 
 export interface Mover {
   step(direction: Direction): Promise<boolean>;
-  sidestep(avoid: Direction, route: Route): Promise<boolean>;
+  /** `give` accepts a step away from the route, for a tile only waiting can clear. */
+  sidestep(avoid: Direction, route: Route, give?: boolean): Promise<boolean>;
   open(at: Position): [Direction, Position][];
   pace(): Promise<unknown>;
 }
@@ -54,11 +55,13 @@ export function mover(
     step,
     open,
     pace: () => new Promise((resolve) => setTimeout(resolve, movementDuration)),
-    async sidestep(avoid, route) {
+    async sidestep(avoid, route, give = false) {
       const at = beliefs.me();
       const here = route.distance(at);
       const detour = open(at)
-        .filter(([d, to]) => d !== avoid && route.distance(to) <= here)
+        .filter(
+          ([d, to]) => d !== avoid && (give || route.distance(to) <= here),
+        )
         .sort(([, a], [, b]) => route.distance(a) - route.distance(b))[0];
       return detour !== undefined && (await step(detour[0]));
     },

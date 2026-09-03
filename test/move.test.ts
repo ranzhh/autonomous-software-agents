@@ -136,4 +136,15 @@ describe("moving", () => {
     );
     expect(asked).toEqual([]);
   });
+
+  test("gives way by the one step there is, backwards though it is", async () => {
+    const { move, asked, board } = harness(["23333"], { x: 2, y: 0 }, [
+      { x: 3, y: 0 },
+    ]);
+
+    expect(await move.sidestep("left", board.route({ x: 0, y: 0 }), true)).toBe(
+      true,
+    );
+    expect(asked).toEqual(["right"]);
+  });
 });
