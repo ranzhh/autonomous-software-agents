@@ -6,6 +6,7 @@ import {
   FRESH,
   type Mates,
   supersedes,
+  type Terms,
 } from "./choose.js";
 import { env } from "./env.js";
 import { type Field, fielding } from "./field.js";
@@ -14,27 +15,51 @@ import { log } from "./log.js";
 import { mover } from "./move.js";
 import { planning } from "./pddl/planner.js";
 import { fastDownward } from "./pddl/solver.js";
+import {
+  centre,
+  constrain,
+  type Exchange,
+  type Goal,
+  handing,
+  type Orders,
+  rendezvous,
+  within,
+} from "./policy.js";
 import { key, MOVES, sameTile } from "./position.js";
 import type { Connection, Direction, Position, World } from "./sdk.js";
 import { type Share, sharing, type Told } from "./share.js";
 import type { Team } from "./team.js";
-import { pricedTour, type Tour, touring } from "./tour.js";
+import {
+  destination,
+  place,
+  pricedTour,
+  type Stop,
+  type Tour,
+  touring,
+} from "./tour.js";
 import { value } from "./value.js";
 
-/** The control loop of the bdi agent: sense, revise, commit, walk. */
+/** The control loop both agents run: sense, revise, commit, walk, under standing orders. */
 export async function executive(
   game: Connection,
   world: World,
   beliefs: Beliefs,
   team: Team | undefined,
+  orders: Orders,
   field: Field = fielding(beliefs, world.config, world.me.id),
 ): Promise<void> {
   let tiles = world.tiles;
-  let board = grid(tiles);
   let occupied: string | undefined;
   let clear: Grid | undefined;
+  const rebuild = (): Grid => {
+    const policy = orders.policy();
+    occupied = undefined;
+    return grid(constrain(tiles, policy), policy.avoid);
+  };
+  let board = rebuild();
   const mine = world.me.id;
   let stale = true;
+  let ordered = false;
   let share: Share | undefined;
 
   game.onSensing((sensing) => {
@@ -61,10 +86,15 @@ export async function executive(
       ...tiles.filter((t) => key(t.x, t.y) !== key(tile.x, tile.y)),
       tile,
     ];
-    board = grid(tiles);
-    occupied = undefined;
+    board = rebuild();
     beliefs.changed(tile);
     stale = true;
+  });
+  orders.onIssue((policy) => {
+    board = rebuild();
+    ordered = true;
+    stale = true;
+    log.info({ policy }, "ordered");
   });
 
   const move = mover(
@@ -73,11 +103,16 @@ export async function executive(
     () => board,
     world.config.GAME.player.movement_duration,
   );
+  const settle = (): Promise<unknown> =>
+    new Promise((resolve) => setTimeout(resolve, 4 * world.config.CLOCK));
   const optimal = planning(fastDownward(env.DOWNWARD));
   const worth = value(world.config);
 
   let generation = 0;
   let tour: Tour | undefined;
+  // What the teammate left for this agent to deliver, as opposed to what it picked up itself.
+  const handed = new Set<string>();
+
   let scouting: Position | undefined;
 
   const told = (): Told => ({
@@ -120,11 +155,53 @@ export async function executive(
     return landed;
   };
 
+  const mateAt = (): Position | undefined => {
+    const mate = team?.mate();
+    return mate && beliefs.agents().find((a) => a.id === mate.id);
+  };
+
   function teammate(): Mates | undefined {
     const mate = team?.mate();
     if (mate === undefined || share === undefined) return undefined;
-    const at = beliefs.agents().find((a) => a.id === mate.id);
-    return { id: mate.id, at, claimed: share.claimed() };
+    return { id: mate.id, at: mateAt(), claimed: share.claimed() };
+  }
+
+  function exchange(): Exchange | undefined {
+    const mate = team?.mate();
+    return orders.policy().handoff && mate
+      ? rendezvous(board, mine, mate.id)
+      : undefined;
+  }
+
+  const terms = (): Terms => ({
+    batch: orders.policy().batch ?? 1,
+    leave: exchange()?.mine,
+  });
+
+  function visiting(goal: Goal): (from: Position) => Stop | undefined {
+    // Two agents told to meet head for the middle, or the first one in blocks the door.
+    const route = board.route(
+      ...(goal.together ? [centre(goal.tiles)] : goal.tiles),
+    );
+    return (from) => {
+      const at = destination(route, from);
+      return (
+        at && {
+          action: "visit",
+          at,
+          bonus: goal.bonus,
+          together: goal.together,
+        }
+      );
+    };
+  }
+
+  function shaped(walk: Tour, price: (walk: Tour) => number): Tour {
+    let out = walk;
+    for (const goal of orders.pending())
+      if (goal.kind === "visit")
+        out = place(beliefs.me(), out, visiting(goal), price);
+    return out;
   }
 
   function commit(batch: Batch): void {
@@ -133,21 +210,34 @@ export async function executive(
     const at = beliefs.me();
     const carrying = beliefs.carrying();
     const candidates = [...carrying, ...batch.parcels];
-    if (candidates.length === 0) {
-      tour = undefined;
-      return;
-    }
     const price = (walk: Tour): number =>
       pricedTour(at, walk, carrying, batch.parcels, board, worth);
 
-    tour = touring(at, batch.parcels, board);
-    const toBeat = tour ? price(tour) : 0;
-    // Fast Downward minimises steps, not reward, so a shorter tour can be worth less.
+    const drop = orders.pending().find((g) => g.kind === "deliver");
+    const swap = exchange();
+    const ends = drop ? drop.tiles : swap ? [swap.mine] : board.deliveries;
+    const enough = candidates.length >= terms().batch;
+    const planned =
+      candidates.length > 0 && enough
+        ? touring(at, batch.parcels, board, ends, drop?.bonus)
+        : [];
+    // Own pickups are left at the exchange; what the teammate left there goes on to a delivery.
+    const home =
+      swap && destination(board.route(...board.deliveries), swap.mine);
+    if (planned && home) planned.push({ action: "deliver", at: home });
+    const walk = shaped(planned ?? [], price);
+    tour = walk.length > 0 ? walk : undefined;
+    if (tour === undefined || candidates.length === 0) return;
+    const toBeat = price(tour);
+    // Fast Downward minimises steps, not reward, so a shorter tour can be worth less;
+    // and it banks on the delivery tiles it is given, so it competes only when those are the ends.
+    if (ends !== board.deliveries) return;
     optimal
       .plan(at, candidates, board)
       .then((better) => {
-        if (better && generation === epoch && price(better) > toBeat)
-          tour = better;
+        if (better === undefined || generation !== epoch) return;
+        const improved = shaped(better, price);
+        if (price(improved) > toBeat) tour = improved;
       })
       .catch(() => {});
   }
@@ -180,9 +270,17 @@ export async function executive(
   }
 
   function reconsider(): void {
-    const batch = choose(beliefs, board, world.config, Date.now(), teammate());
+    const batch = choose(
+      beliefs,
+      board,
+      world.config,
+      Date.now(),
+      teammate(),
+      terms(),
+    );
     const held = remaining();
-    const cause = supersedes(batch, held, lost());
+    const cause = ordered ? "ordered" : supersedes(batch, held, lost());
+    ordered = false;
     if (cause === undefined) return;
     log.info(
       { was: held, now: batch.worth, parcels: batch.parcels.length, cause },
@@ -225,7 +323,8 @@ export async function executive(
       .join(" ");
     if (clear === undefined || at !== occupied) {
       occupied = at;
-      clear = grid(tiles, on);
+      const policy = orders.policy();
+      clear = grid(constrain(tiles, policy), [...policy.avoid, ...on]);
     }
     return clear;
   }
@@ -251,11 +350,24 @@ export async function executive(
       reconsider();
     }
 
+    const policy = orders.policy();
+    if (policy.hold) {
+      await move.pace();
+      continue;
+    }
+
     const at = beliefs.me();
+    const swap = exchange();
     const loose = beliefs.parcels().filter((p) => !p.carriedBy);
-    if (loose.some((p) => sameTile(p, at))) {
+    const underfoot = loose.filter((p) => sameTile(p, at));
+    if (
+      underfoot.length > 0 &&
+      !(swap !== undefined && sameTile(at, swap.mine))
+    ) {
       const taken = await game.pickup();
       beliefs.took(taken);
+      if (swap !== undefined && sameTile(at, swap.theirs))
+        for (const p of underfoot) handed.add(p.id);
       stale = true;
       log.info({ taken }, "picked up");
       continue;
@@ -267,19 +379,67 @@ export async function executive(
       continue;
     }
 
-    if (sameTile(at, stop.at)) {
+    if (stop.action === "visit") {
+      const goal = orders
+        .pending()
+        .find((g) => g.kind === "visit" && within(stop.at, g.tiles));
+      // Any tile of the set counts, so being walled off from the chosen one costs nothing.
+      const inside = goal ? within(at, goal.tiles) : sameTile(at, stop.at);
+      const mate = mateAt();
+      const joined =
+        !stop.together || (mate && goal && within(mate, goal.tiles));
+      if (inside && joined) {
+        if (goal) orders.done(goal);
+        log.info({ x: at.x, y: at.y, bonus: stop.bonus }, "reached");
+        advance();
+        continue;
+      }
+      // Waiting happens at the middle, not on the first tile in, which is the door.
+      if (sameTile(at, stop.at)) {
+        await move.pace();
+        continue;
+      }
+    } else if (sameTile(at, stop.at)) {
       if (stop.action === "pickup") {
         advance();
         continue;
       }
-      // Before the await, so a plan landing mid-putdown is discarded, not walked.
-      generation++;
-      const dropping = beliefs.carrying();
-      const delivered = await game.putdown();
-      beliefs.gave();
-      field.banked(dropping.map((p) => ({ id: p.id, reward: p.reward })));
-      share?.bank(dropping.map((p) => p.id));
-      log.info({ delivered }, "delivered");
+      const carrying = beliefs.carrying();
+      const hand = handing(
+        swap === undefined
+          ? carrying
+          : sameTile(at, swap.mine)
+            ? carrying.filter((p) => !handed.has(p.id))
+            : carrying.filter((p) => handed.has(p.id)),
+        policy,
+      );
+      if (hand === "wait") {
+        await move.pace();
+        continue;
+      }
+      if (hand !== "leave") {
+        // Before the await, so a plan landing mid-putdown is discarded, not walked.
+        generation++;
+        // The graders match a delivery to the tile they last saw the parcels on, and a
+        // frame runs up to three clock ticks late (measured): let one show them here.
+        await settle();
+        const dropping = beliefs
+          .carrying()
+          .filter((p) => hand.drop.includes(p.id));
+        const delivered = await game.putdown(hand.drop);
+        beliefs.gave(hand.drop);
+        if (beliefs.tileAt(at.x, at.y)?.type === "2") {
+          field.banked(dropping.map((p) => ({ id: p.id, reward: p.reward })));
+          share?.bank(hand.drop);
+        }
+        for (const id of hand.drop) handed.delete(id);
+        log.info({ delivered, kept: beliefs.carrying().length }, "delivered");
+        const goal = orders
+          .pending()
+          .find((g) => g.kind === "deliver" && within(at, g.tiles));
+        if (goal) orders.done(goal);
+        if (hand.more) continue;
+      }
       advance();
       continue;
     }

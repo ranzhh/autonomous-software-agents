@@ -10,7 +10,7 @@ export interface Batch {
   worth: number;
 }
 
-export type Cause = "gone" | "expired" | "beaten" | "stalled";
+export type Cause = "gone" | "expired" | "beaten" | "stalled" | "ordered";
 
 export const FRESH = 1_000;
 
