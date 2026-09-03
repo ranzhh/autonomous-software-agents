@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { grid } from "../src/grid.js";
-import { nearest, pricedTour, type Tour } from "../src/tour.js";
+import { nearest, place, pricedTour, type Tour, touring } from "../src/tour.js";
 import { value } from "../src/value.js";
 import { config, parcelOf, tilesOf } from "./world.js";
 
@@ -121,5 +121,61 @@ describe("pricing the tour that will be walked", () => {
       worth,
     );
     expect(price).toBe(0);
+  });
+});
+
+describe("a tour under orders", () => {
+  const board = grid(tilesOf(["2333333"]));
+  const worth = value(config);
+  const loose = [parcelOf("p", 3)];
+  const price = (walk: Tour) =>
+    pricedTour({ x: 1, y: 0 }, walk, [], loose, board, worth);
+
+  test("banks where it is told to, and counts the bonus for it", () => {
+    const walk = touring({ x: 1, y: 0 }, loose, board, [{ x: 6, y: 0 }], 1000);
+    expect(walk?.at(-1)).toEqual({
+      action: "deliver",
+      at: { x: 6, y: 0 },
+      bonus: 1000,
+    });
+    // Two steps out, three back to the end, 30 - 5, plus the bonus.
+    expect(price(walk ?? [])).toBe(1000 + 25);
+  });
+
+  test("a visit is worth its bonus wherever it falls", () => {
+    const walk: Tour = [
+      { action: "visit", at: { x: 4, y: 0 }, bonus: 100, together: false },
+      { action: "pickup", at: { x: 3, y: 0 }, parcel: "p" },
+      { action: "deliver", at: { x: 0, y: 0 } },
+    ];
+    // 3 steps to the visit, 1 back to the parcel, 3 home: 30 - 7.
+    expect(price(walk)).toBe(100 + 23);
+  });
+
+  test("places a stop where the parcel decays least on the way", () => {
+    const walk = touring({ x: 1, y: 0 }, loose, board) ?? [];
+    const visit = (from: { x: number; y: number }) => ({
+      action: "visit" as const,
+      at: { x: 4, y: 0 },
+      bonus: 100,
+      together: false,
+      from,
+    });
+    const placed = place({ x: 1, y: 0 }, walk, (from) => visit(from), price);
+    // Banking first costs four extra steps afterwards, but none while the parcel is in hand.
+    expect(placed.map((s) => s.action)).toEqual(["pickup", "deliver", "visit"]);
+    expect(placed[2]).toMatchObject({ from: { x: 0, y: 0 } });
+  });
+
+  test("leaves a stop out when no place for it pays", () => {
+    const walk = touring({ x: 1, y: 0 }, loose, board) ?? [];
+    const trap = () => ({
+      action: "visit" as const,
+      at: { x: 6, y: 0 },
+      bonus: -10,
+      together: false,
+    });
+    expect(place({ x: 1, y: 0 }, walk, trap, price)).toBe(walk);
+    expect(place({ x: 1, y: 0 }, walk, () => undefined, price)).toBe(walk);
   });
 });

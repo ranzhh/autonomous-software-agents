@@ -6,7 +6,8 @@ import type { Value } from "./value.js";
 
 export type Stop =
   | { action: "pickup"; at: Position; parcel: string }
-  | { action: "deliver"; at: Position };
+  | { action: "deliver"; at: Position; bonus?: number | undefined }
+  | { action: "visit"; at: Position; bonus: number; together: boolean };
 
 export type Tour = Stop[];
 
@@ -36,8 +37,12 @@ export function pricedTour(
     steps += grid.route(stop.at).distance(at);
     if (!Number.isFinite(steps)) return 0;
     at = stop.at;
+    if (stop.action === "visit") {
+      worth += stop.bonus;
+      continue;
+    }
     if (stop.action === "deliver") {
-      worth += delivered(held, steps);
+      worth += delivered(held, steps) + (stop.bonus ?? 0);
       held = [];
       continue;
     }
@@ -80,20 +85,46 @@ export function destination(
   return at;
 }
 
-/** The tour that collects `order` in that order and banks it all at the end. */
+/** The tour that collects `order` in that order and banks it all at the nearest of `ends`. */
 export function touring(
   from: Position,
   order: ParcelBelief[],
   grid: Grid,
+  ends: Position[] = grid.deliveries,
+  bonus?: number,
 ): Tour | undefined {
   const stops: Tour = order.map((parcel) => ({
     action: "pickup",
     at: { x: parcel.x, y: parcel.y },
     parcel: parcel.id,
   }));
-  const home = grid.route(...grid.deliveries);
+  const home = grid.route(...ends);
   const delivery = destination(home, stops.at(-1)?.at ?? from);
-  return delivery ? [...stops, { action: "deliver", at: delivery }] : undefined;
+  return delivery
+    ? [...stops, { action: "deliver", at: delivery, bonus }]
+    : undefined;
+}
+
+/** The tour with `stop` inserted where it prices best, or unchanged when no place pays. */
+export function place(
+  from: Position,
+  tour: Tour,
+  stop: (from: Position) => Stop | undefined,
+  price: (walk: Tour) => number,
+): Tour {
+  let best = tour;
+  let worth = price(tour);
+  for (let i = 0; i <= tour.length; i++) {
+    const added = stop(tour[i - 1]?.at ?? from);
+    if (added === undefined) continue;
+    const walk = [...tour.slice(0, i), added, ...tour.slice(i)];
+    const w = price(walk);
+    if (w > worth) {
+      best = walk;
+      worth = w;
+    }
+  }
+  return best;
 }
 
 export const nearest: Planner = {
