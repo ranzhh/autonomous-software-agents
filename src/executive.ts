@@ -1,29 +1,43 @@
 import type { Beliefs } from "./beliefs.js";
 import { type Batch, choose, supersedes } from "./choose.js";
 import { env } from "./env.js";
+import { type Field, fielding } from "./field.js";
 import { grid } from "./grid.js";
 import { log } from "./log.js";
 import { mover } from "./move.js";
 import { planning } from "./pddl/planner.js";
 import { fastDownward } from "./pddl/solver.js";
-import { key, sameTile } from "./position.js";
-import type { Connection, World } from "./sdk.js";
+import { key, MOVES, sameTile } from "./position.js";
+import type { Connection, Direction, World } from "./sdk.js";
 import { pricedTour, type Tour, touring } from "./tour.js";
 import { value } from "./value.js";
-
-const COLDEST = 8;
 
 /** The control loop of the bdi agent: sense, revise, commit, walk. */
 export async function executive(
   game: Connection,
   world: World,
   beliefs: Beliefs,
+  field: Field = fielding(beliefs, world.config, world.me.id),
 ): Promise<void> {
   let tiles = world.tiles;
   let board = grid(tiles);
+  const mine = world.me.id;
   let stale = true;
   game.onSensing((sensing) => {
-    beliefs.seen(sensing);
+    const now = Date.now();
+    beliefs.seen(sensing, now);
+    field.saw(
+      board,
+      mine,
+      sensing.positions,
+      sensing.parcels,
+      sensing.agents.flatMap((a) =>
+        a.x === undefined || a.y === undefined
+          ? []
+          : [{ id: a.id, x: a.x, y: a.y }],
+      ),
+      now,
+    );
     stale = true;
   });
   game.onTile((tile) => {
@@ -48,9 +62,20 @@ export async function executive(
   let generation = 0;
   let tour: Tour | undefined;
 
+  const stepping = async (direction: Direction): Promise<boolean> => {
+    const from = beliefs.me();
+    const to = {
+      x: from.x + MOVES[direction].dx,
+      y: from.y + MOVES[direction].dy,
+    };
+    const landed = await move.step(direction);
+    field.stepped(to, landed);
+    return landed;
+  };
+
   function commit(batch: Batch): void {
     generation++;
-    const mine = generation;
+    const epoch = generation;
     const at = beliefs.me();
     const carrying = beliefs.carrying();
     const candidates = [...carrying, ...batch.parcels];
@@ -67,7 +92,7 @@ export async function executive(
     optimal
       .plan(at, candidates, board)
       .then((better) => {
-        if (better && generation === mine && price(better) > toBeat)
+        if (better && generation === epoch && price(better) > toBeat)
           tour = better;
       })
       .catch(() => {});
@@ -87,7 +112,6 @@ export async function executive(
 
   function lost(): boolean {
     if (tour === undefined) return false;
-    const mine = beliefs.me().id;
     const known = beliefs.parcels();
     return tour.some((stop) => {
       if (stop.action !== "pickup") return false;
@@ -112,23 +136,24 @@ export async function executive(
 
   async function explore(): Promise<void> {
     const at = beliefs.me();
-    const unseen = board.spawners.filter(
-      (s) => beliefs.observedAt(s.x, s.y) === Number.NEGATIVE_INFINITY,
+    const { chosen } = field.assess(
+      board,
+      beliefs.agents(),
+      undefined,
+      Date.now(),
+      true,
     );
-    const cold =
-      unseen.length > 0
-        ? unseen
-        : [...board.spawners]
-            .sort(
-              (a, b) =>
-                beliefs.observedAt(a.x, a.y) - beliefs.observedAt(b.x, b.y),
-            )
-            .slice(0, COLDEST);
-    const next = board.route(...cold).step(at);
-    if (next !== undefined && (await move.step(next))) return;
+    const next = chosen && board.route(chosen).step(at);
+    if (next !== undefined && (await stepping(next))) return;
     const around = move.open(at);
     const drift = around[Math.floor(Math.random() * around.length)];
-    if (drift === undefined || !(await move.step(drift[0]))) await move.pace();
+    if (drift === undefined || !(await stepping(drift[0]))) await move.pace();
+  }
+
+  function advance(): void {
+    generation++;
+    tour = tour?.slice(1);
+    stale = true;
   }
 
   while (true) {
@@ -154,15 +179,18 @@ export async function executive(
     }
 
     if (sameTile(at, stop.at)) {
+      if (stop.action === "pickup") {
+        advance();
+        continue;
+      }
       // Before the await, so a plan landing mid-putdown is discarded, not walked.
       generation++;
-      tour = tour?.slice(1);
-      if (stop.action === "deliver") {
-        const delivered = await game.putdown();
-        beliefs.gave();
-        log.info({ delivered }, "delivered");
-      }
-      stale = true;
+      const dropping = beliefs.carrying();
+      const delivered = await game.putdown();
+      beliefs.gave();
+      field.banked(dropping.map((p) => ({ id: p.id, reward: p.reward })));
+      log.info({ delivered }, "delivered");
+      advance();
       continue;
     }
 
@@ -175,7 +203,7 @@ export async function executive(
       await move.pace();
       continue;
     }
-    if (!(await move.step(next)) && !(await move.sidestep(next, route)))
-      await move.pace();
+    if (await stepping(next)) continue;
+    if (!(await move.sidestep(next, route))) await move.pace();
   }
 }
