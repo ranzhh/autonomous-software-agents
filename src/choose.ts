@@ -66,15 +66,46 @@ function unclaimed(
   });
 }
 
+export interface Mates {
+  id: string;
+  /** Where the teammate last reported standing; undefined until it has. */
+  at: Position | undefined;
+  claimed: ReadonlySet<string>;
+}
+
+/** Whether the teammate's claim outranks ours: the shorter walk takes it, the id settles a tie. */
+export function conceded(
+  parcel: Position,
+  at: Position,
+  me: string,
+  mates: Mates,
+  grid: Grid,
+): boolean {
+  if (mates.at === undefined) return true;
+  const field = grid.route(parcel);
+  const theirs = field.distance(mates.at);
+  const ours = field.distance(at);
+  return theirs < ours || (theirs === ours && me > mates.id);
+}
+
 export function choose(
   beliefs: Beliefs,
   grid: Grid,
   config: IOConfig,
   now = Date.now(),
+  mates?: Mates,
 ): Batch {
   const at = beliefs.me();
-  const rivals = beliefs.agents().filter((a) => now - a.seenAt < FRESH);
-  const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
+  const rivals = beliefs
+    .agents()
+    .filter((a) => a.id !== mates?.id && now - a.seenAt < FRESH);
+  const loose = beliefs
+    .parcels(now)
+    .filter(
+      (p) =>
+        !p.carriedBy &&
+        !(mates?.claimed.has(p.id) && conceded(p, at, at.id, mates, grid)),
+    );
   return bestK(
     at,
     unclaimed(at, loose, rivals, grid),

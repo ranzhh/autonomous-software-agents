@@ -1,11 +1,22 @@
 import { describe, expect, test } from "vitest";
-import { type Batch, choose, supersedes } from "../src/choose.js";
+import { type Batch, choose, type Mates, supersedes } from "../src/choose.js";
+import type { Position } from "../src/sdk.js";
 import { pricedTour, touring } from "../src/tour.js";
 import { value } from "../src/value.js";
 import { config, setup } from "./world.js";
 
 const ids = (parcels: { id: string }[]): string[] =>
   parcels.map((p) => p.id).sort();
+
+const mates = (
+  id: string,
+  at: Position | undefined,
+  ...claimed: string[]
+): Mates => ({
+  id,
+  at,
+  claimed: new Set(claimed),
+});
 
 describe("choosing a batch", () => {
   test("takes the parcel that pays for the walk", () => {
@@ -85,6 +96,59 @@ describe("choosing a batch", () => {
       [{ x: 6 }],
     );
     expect(choose(beliefs, board, config, 0).parcels).toEqual([]);
+  });
+
+  test("does not concede a parcel to the teammate", () => {
+    // The same board as above, where the agent nearer the parcel is ours.
+    const { beliefs, board } = setup(
+      ["2333333"],
+      { x: 0, y: 0 },
+      [{ x: 5 }],
+      [{ x: 6 }],
+    );
+    expect(
+      ids(choose(beliefs, board, config, 0, mates("r0", undefined)).parcels),
+    ).toEqual(["p0"]);
+  });
+
+  test("keeps a claimed parcel it stands nearer to, and settles a tie by id", () => {
+    const parcel = [{ x: 2 }];
+    const nearer = setup(["2333333"], { x: 0, y: 0 }, parcel);
+    const claim = mates("r0", { x: 6, y: 0 }, "p0");
+    expect(
+      ids(choose(nearer.beliefs, nearer.board, config, 0, claim).parcels),
+    ).toEqual(["p0"]);
+
+    // Both two steps out: "me" loses to "a0" and wins against "r0".
+    const under = setup(["2333333"], { x: 0, y: 0 }, parcel);
+    expect(
+      choose(
+        under.beliefs,
+        under.board,
+        config,
+        0,
+        mates("a0", { x: 4, y: 0 }, "p0"),
+      ).parcels,
+    ).toEqual([]);
+    const over = setup(["2333333"], { x: 0, y: 0 }, parcel);
+    expect(
+      ids(
+        choose(
+          over.beliefs,
+          over.board,
+          config,
+          0,
+          mates("r0", { x: 4, y: 0 }, "p0"),
+        ).parcels,
+      ),
+    ).toEqual(["p0"]);
+  });
+
+  test("leaves alone a parcel the teammate has committed to", () => {
+    const { beliefs, board } = setup(["2333333"], { x: 0, y: 0 }, [{ x: 2 }]);
+    expect(
+      choose(beliefs, board, config, 0, mates("r0", undefined, "p0")).parcels,
+    ).toEqual([]);
   });
 
   test("keeps the parcel it stands nearer to, and a tie with it", () => {
