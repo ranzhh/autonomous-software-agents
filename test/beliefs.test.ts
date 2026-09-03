@@ -133,6 +133,20 @@ describe("agents", () => {
   });
 });
 
+describe("crates", () => {
+  test("remembers by the same sight rule as parcels", () => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ crates: [{ id: "c1", x: 1, y: 1 }] }), 0);
+    expect(beliefs.crates()).toEqual([{ id: "c1", x: 1, y: 1, seenAt: 0 }]);
+
+    beliefs.seen(sensing({ positions: [{ x: 9, y: 9 }] }), 100);
+    expect(beliefs.crates()).toHaveLength(1);
+
+    beliefs.seen(sensing({ positions: [{ x: 1, y: 1 }] }), 200);
+    expect(beliefs.crates()).toEqual([]);
+  });
+});
+
 describe("the map", () => {
   test("applies tile changes", () => {
     const beliefs = believe(world());
