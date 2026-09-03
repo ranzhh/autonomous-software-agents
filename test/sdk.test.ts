@@ -68,6 +68,28 @@ describe("ready", () => {
     expect(world.config.GAME.player.movement_duration).toBe(0);
   });
 
+  test("makes a numeric tile type the string the type promises", async () => {
+    const wire = [
+      { x: 0, y: 0, type: 2 },
+      { x: 1, y: 0, type: "3" },
+    ] as unknown as IOTile[];
+    const world = await connect(
+      fakeSocket({ onMap: (listener) => listener(2, 1, wire) }),
+    ).ready();
+    expect(world.tiles.map((t) => t.type)).toEqual(["2", "3"]);
+  });
+
+  test("makes a numeric tile type a string on a later tile too", async () => {
+    let emit: ((tile: IOTile) => void) | undefined;
+    const game = connect(
+      fakeSocket({ onTile: (listener) => (emit = listener) }),
+    );
+    const seen: IOTile[] = [];
+    game.onTile((tile) => seen.push(tile));
+    emit?.({ x: 3, y: 4, type: 0 } as unknown as IOTile);
+    expect(seen).toEqual([{ x: 3, y: 4, type: "0" }]);
+  });
+
   test("waits past an unpositioned `you` for the spawned one", async () => {
     let emit: ((me: IOAgent) => void) | undefined;
     const game = connect(

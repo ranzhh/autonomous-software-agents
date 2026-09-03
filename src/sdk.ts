@@ -139,6 +139,11 @@ function deadline<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
 
+const stringType = (tile: IOTile): IOTile => ({
+  ...tile,
+  type: String(tile.type) as IOTile["type"],
+});
+
 // DjsConnect defaults every argument to HOST / TOKEN / NAME in the environment.
 export function connect(socket: GameSocket = DjsConnect()): Connection {
   let latest: IOAgent | undefined;
@@ -183,7 +188,9 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
   });
 
   const mapped = new Promise<IOTile[]>((resolve) =>
-    socket.onMap((_width, _height, tiles) => resolve(arrived("map", tiles))),
+    socket.onMap((_width, _height, tiles) =>
+      resolve(arrived("map", tiles.map(stringType))),
+    ),
   );
 
   let timer: ReturnType<typeof setTimeout>;
@@ -291,7 +298,7 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
   return {
     ready: () => world,
     me: () => latest,
-    onTile: (listener) => socket.onTile(listener),
+    onTile: (listener) => socket.onTile((tile) => listener(stringType(tile))),
     onSensing: (listener) => socket.onSensing(listener),
     onLost: (listener) => {
       lost = listener;
