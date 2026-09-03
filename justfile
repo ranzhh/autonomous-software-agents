@@ -20,6 +20,14 @@ token agent="dumb" *flags="":
 bench *args="dumb naive":
     @npx tsx --env-file-if-exists=.env src/bench.ts {{args}}
 
+# Fetch a prebuilt Fast Downward and put `fast-downward` on ~/.local/bin
+planner:
+    @python3 -m pip install --user --quiet --break-system-packages up-fast-downward
+    @mkdir -p ~/.local/bin
+    @printf '#!/bin/sh\nexec python3 ~/.local/lib/python3*/site-packages/up_fast_downward/downward/fast-downward.py "$@"\n' > ~/.local/bin/fast-downward
+    @chmod +x ~/.local/bin/fast-downward
+    @~/.local/bin/fast-downward --version
+
 # Stop a deployed agent
 stop identity="dumb":
     @pkill -f "src/agents/[^ ]*[.]ts {{identity}}" && echo "stopped {{identity}}" || echo "{{identity}} is not deployed"
