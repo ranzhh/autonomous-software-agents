@@ -37,9 +37,18 @@ export interface Beliefs {
   carrying(now?: number): ParcelBelief[];
   /** When the tile was last in view; -Infinity when it never was. */
   observedAt(x: number, y: number): number;
+  /** The tiles a sensing from there covers: a Manhattan diamond clipped to the map, walls and all. */
+  viewFrom(x: number, y: number): Position[];
 
   /** Ingests a frame and returns the parcels it retired as visibly absent. */
   seen(sensing: IOSensing, now?: number): string[];
+  /** A teammate's frame, taken only where it is newer; returns how many sightings were news. */
+  heard(
+    from: AgentBelief,
+    sighted: ParcelBelief[],
+    gone: string[],
+    others?: AgentBelief[],
+  ): number;
   moved(me: IOAgent): void;
   changed(tile: IOTile): void;
   /** A pickup ack: what was believed loose underfoot is carried, or was never there. */
@@ -112,6 +121,56 @@ export function believe(world: World): Beliefs {
     return retired;
   }
 
+  function heard(
+    from: AgentBelief,
+    sighted: ParcelBelief[],
+    gone: string[],
+    others: AgentBelief[] = [],
+  ): number {
+    const placed = agents.get(from.id);
+    if (placed === undefined || placed.seenAt <= from.seenAt)
+      agents.set(from.id, from);
+    // Ourselves reported back would wall off the tile we are standing on.
+    for (const other of others) {
+      if (other.id === self.id) continue;
+      const known = agents.get(other.id);
+      if (known === undefined || known.seenAt <= other.seenAt)
+        agents.set(other.id, other);
+    }
+
+    for (const { x, y } of viewFrom(from.x, from.y)) {
+      const at = key(x, y);
+      if ((observed.get(at) ?? Number.NEGATIVE_INFINITY) < from.seenAt)
+        observed.set(at, from.seenAt);
+    }
+
+    for (const id of gone) {
+      const p = parcels.get(id);
+      // A parcel we are carrying is absent from its tile for a reason of our own.
+      if (p !== undefined && !p.carriedBy && p.seenAt <= from.seenAt)
+        parcels.delete(id);
+    }
+    let news = 0;
+    for (const p of sighted) {
+      const held = parcels.get(p.id);
+      if (held === undefined) news++;
+      if (held === undefined || held.seenAt <= p.seenAt) parcels.set(p.id, p);
+    }
+    return news;
+  }
+
+  function viewFrom(x: number, y: number): Position[] {
+    const reach = config.GAME.player.observation_distance;
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    const out: Position[] = [];
+    for (let dx = -reach; dx <= reach; dx++)
+      for (let dy = Math.abs(dx) - reach; dy <= reach - Math.abs(dx); dy++)
+        if (grid.has(key(cx + dx, cy + dy)))
+          out.push({ x: cx + dx, y: cy + dy });
+    return out;
+  }
+
   const current = (now: number): ParcelBelief[] =>
     [...parcels.values()]
       .map((p) => ({ ...p, reward: decayedReward(p, config, now) }))
@@ -130,10 +189,12 @@ export function believe(world: World): Beliefs {
     tileAt: (x, y) => grid.get(key(x, y)),
     parcels: (now = Date.now()) => current(now),
     observedAt: (x, y) => observed.get(key(x, y)) ?? Number.NEGATIVE_INFINITY,
+    viewFrom,
     agents: () => [...agents.values()],
     carrying: (now = Date.now()) =>
       current(now).filter((p) => p.carriedBy === self.id),
     seen,
+    heard,
     moved: (me) => {
       self = settle(me);
     },

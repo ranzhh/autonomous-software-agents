@@ -36,7 +36,7 @@ export const config = {
       reward_avg: 30,
       max: 25,
     },
-    player: { movement_duration: 1_000 },
+    player: { movement_duration: 1_000, observation_distance: 5 },
   },
 } as unknown as IOConfig;
 
