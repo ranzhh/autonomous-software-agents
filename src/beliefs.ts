@@ -38,7 +38,8 @@ export interface Beliefs {
   /** When the tile was last in view; -Infinity when it never was. */
   observedAt(x: number, y: number): number;
 
-  seen(sensing: IOSensing, now?: number): void;
+  /** Ingests a frame and returns the parcels it retired as visibly absent. */
+  seen(sensing: IOSensing, now?: number): string[];
   moved(me: IOAgent): void;
   changed(tile: IOTile): void;
   /** A pickup ack: what was believed loose underfoot is carried, or was never there. */
@@ -71,7 +72,7 @@ export function believe(world: World): Beliefs {
   const agents = new Map<string, AgentBelief>();
   const observed = new Map<string, number>();
 
-  function seen(sensing: IOSensing, now = Date.now()): void {
+  function seen(sensing: IOSensing, now = Date.now()): string[] {
     for (const p of sensing.positions) observed.set(key(p.x, p.y), now);
     for (const p of sensing.parcels)
       parcels.set(p.id, {
@@ -97,13 +98,18 @@ export function believe(world: World): Beliefs {
       ...sensing.parcels.map((p) => p.id),
       ...sensing.agents.map((a) => a.id),
     ]);
+    const retired: string[] = [];
     for (const [id, p] of parcels)
-      if (!reported.has(id) && visible.has(key(p.x, p.y))) parcels.delete(id);
+      if (!reported.has(id) && visible.has(key(p.x, p.y))) {
+        parcels.delete(id);
+        retired.push(id);
+      }
     for (const [id, a] of agents)
       if (!reported.has(id) && visible.has(key(a.x, a.y))) agents.delete(id);
 
     for (const [id, p] of parcels)
       if (decayedReward(p, config, now) <= 0) parcels.delete(id);
+    return retired;
   }
 
   const current = (now: number): ParcelBelief[] =>

@@ -59,6 +59,14 @@ describe("parcels", () => {
     expect(beliefs.parcels(100)).toEqual([]);
   });
 
+  test("names the parcels a frame retired as visibly absent", () => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ parcels: [parcel] }), 0);
+    expect(beliefs.seen(sensing({ positions: [{ x: 1, y: 1 }] }), 100)).toEqual(
+      ["p1"],
+    );
+  });
+
   test("keeps a parcel that fell out of sight", () => {
     const beliefs = believe(world());
     beliefs.seen(sensing({ parcels: [parcel] }), 0);
