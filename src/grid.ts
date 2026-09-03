@@ -127,6 +127,8 @@ export function grid(tiles: IOTile[]): Grid {
 
   // Nothing rewrites a board under a grid: a changed tile builds a new one.
   const fields = new Map<string, Route>();
+  // A field per spawner tile is what the scouting model keeps warm.
+  const memo = MEMO + spawners.length;
 
   function route(...targets: Position[]): Route {
     const seeds = targets
@@ -143,7 +145,7 @@ export function grid(tiles: IOTile[]): Grid {
     }
     const built = build(seeds);
     fields.set(at, built);
-    if (fields.size > MEMO) {
+    if (fields.size > memo) {
       const coldest = fields.keys().next().value;
       if (coldest !== undefined) fields.delete(coldest);
     }

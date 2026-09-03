@@ -11,7 +11,7 @@ export interface Batch {
 
 export type Cause = "gone" | "expired" | "beaten" | "stalled";
 
-const FRESH = 1_000;
+export const FRESH = 1_000;
 
 export function supersedes(
   batch: Batch,
