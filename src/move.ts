@@ -21,8 +21,16 @@ export function mover(
   const refusedAt = new Map<string, number>();
   const taken = (to: Position): boolean =>
     beliefs.agents().some((a) => sameTile(a, to));
-  const blocked = (to: Position): boolean =>
-    (refusedAt.get(key(to.x, to.y)) ?? 0) > Date.now() - BLOCKED;
+  const blocked = (to: Position): boolean => {
+    const refused = refusedAt.get(key(to.x, to.y));
+    if (refused === undefined || refused <= Date.now() - BLOCKED) return false;
+    // What refused may have been an agent, and an agent moves on.
+    if (beliefs.observedAt(to.x, to.y) > refused && !taken(to)) {
+      refusedAt.delete(key(to.x, to.y));
+      return false;
+    }
+    return true;
+  };
 
   const open = (at: Position): [Direction, Position][] =>
     board()

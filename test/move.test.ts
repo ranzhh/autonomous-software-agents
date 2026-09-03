@@ -92,6 +92,25 @@ describe("moving", () => {
     expect(asked).toEqual(["right"]);
   });
 
+  test("a refusal lapses early once the tile is seen with nobody on it", async () => {
+    const { move, asked, beliefs } = harness(["333"], { x: 1, y: 0 }, [
+      false,
+      { x: 2, y: 0 },
+    ]);
+
+    expect(await move.step("right")).toBe(false);
+    expect(await move.step("right")).toBe(false);
+    vi.advanceTimersByTime(1);
+    beliefs.seen({
+      positions: [{ x: 2, y: 0 }],
+      agents: [],
+      parcels: [],
+      crates: [],
+    });
+    expect(await move.step("right")).toBe(true);
+    expect(asked).toEqual(["right", "right"]);
+  });
+
   test("what is open leaves out arrows and whatever just refused", async () => {
     const { move } = harness(["333", "3→3"], { x: 0, y: 0 }, [false]);
 
