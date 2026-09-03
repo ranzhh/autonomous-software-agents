@@ -1,5 +1,6 @@
 import type { AgentBelief, Beliefs, ParcelBelief } from "./beliefs.js";
 import type { Grid } from "./grid.js";
+import { sameTile } from "./position.js";
 import type { IOConfig, Position } from "./sdk.js";
 import { nearestOrder } from "./tour.js";
 import { MARGIN, priced, type Value, value } from "./value.js";
@@ -32,6 +33,7 @@ export function bestK(
   carried: ParcelBelief[],
   grid: Grid,
   value: Value,
+  batch = 1,
 ): Batch {
   const ranked = loose
     .map((p) => ({ p, worth: priced(at, [p], carried, grid, value) }))
@@ -41,11 +43,12 @@ export function bestK(
 
   let best: Batch = {
     parcels: [],
-    worth: priced(at, [], carried, grid, value),
+    worth: carried.length >= batch ? priced(at, [], carried, grid, value) : 0,
   };
   for (let k = 1; k <= ranked.length; k++) {
     const parcels = nearestOrder(at, ranked.slice(0, k), grid);
     if (parcels.length < k) break;
+    if (parcels.length + carried.length < batch) continue;
     const worth = priced(at, parcels, carried, grid, value);
     if (worth > best.worth) best = { parcels, worth };
   }
@@ -88,12 +91,20 @@ export function conceded(
   return theirs < ours || (theirs === ours && me > mates.id);
 }
 
+export interface Terms {
+  /** A delivery pays only from this many parcels up. */
+  batch: number;
+  /** A tile whose parcels are somebody else's to take. */
+  leave: Position | undefined;
+}
+
 export function choose(
   beliefs: Beliefs,
   grid: Grid,
   config: IOConfig,
   now = Date.now(),
   mates?: Mates,
+  terms?: Terms,
 ): Batch {
   const at = beliefs.me();
   const rivals = beliefs
@@ -104,7 +115,8 @@ export function choose(
     .filter(
       (p) =>
         !p.carriedBy &&
-        !(mates?.claimed.has(p.id) && conceded(p, at, at.id, mates, grid)),
+        !(mates?.claimed.has(p.id) && conceded(p, at, at.id, mates, grid)) &&
+        !(terms?.leave && sameTile(p, terms.leave)),
     );
   return bestK(
     at,
@@ -112,5 +124,6 @@ export function choose(
     beliefs.carrying(now),
     grid,
     value(config),
+    terms?.batch,
   );
 }

@@ -224,3 +224,42 @@ describe("supersedes", () => {
     expect(supersedes(batch(0, 0), undefined, false, MARGIN)).toBeUndefined();
   });
 });
+
+describe("under orders", () => {
+  test("a batch smaller than the delivery size is worth nothing yet", () => {
+    const { beliefs, board } = setup(["2333333"], { x: 0, y: 0 }, [
+      { x: 2 },
+      { x: 4 },
+    ]);
+    const three = { batch: 3, leave: undefined };
+    expect(choose(beliefs, board, config, 0, undefined, three).parcels).toEqual(
+      [],
+    );
+    const two = { batch: 2, leave: undefined };
+    expect(
+      ids(choose(beliefs, board, config, 0, undefined, two).parcels),
+    ).toEqual(["p0", "p1"]);
+  });
+
+  test("what is already carried counts toward the batch", () => {
+    const { beliefs, board } = setup(["2333333"], { x: 0, y: 0 }, [
+      { x: 2 },
+      { x: 5, carriedBy: "me" },
+    ]);
+    const two = { batch: 2, leave: undefined };
+    expect(
+      ids(choose(beliefs, board, config, 0, undefined, two).parcels),
+    ).toEqual(["p0"]);
+  });
+
+  test("leaves alone what lies on the tile it was told to", () => {
+    const { beliefs, board } = setup(["2333333"], { x: 0, y: 0 }, [
+      { x: 2 },
+      { x: 4 },
+    ]);
+    const terms = { batch: 1, leave: { x: 2, y: 0 } };
+    expect(
+      ids(choose(beliefs, board, config, 0, undefined, terms).parcels),
+    ).toEqual(["p1"]);
+  });
+});
