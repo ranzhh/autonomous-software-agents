@@ -1,8 +1,8 @@
 import type { Beliefs } from "./beliefs.js";
-import { env } from "./env.js";
 import type { Grid } from "./grid.js";
 import type { Action, Intention } from "./plans.js";
 import type { Position } from "./sdk.js";
+import { solve } from "./solver.js";
 
 /**
  * Means-ends reasoning as planning: an intention becomes a whole action
@@ -145,44 +145,6 @@ export function parse(plan: string): Action[] {
   return actions;
 }
 
-const SOLVE_PATH = "/package/dual-bfws-ffparser/solve";
-const POLL_MS = 100;
-const DEADLINE_MS = 10_000;
-
-/** One round trip to the planning-as-a-service solver. */
-export async function solve(problem: string): Promise<Action[]> {
-  const submitted = await fetch(`${env.PDDL_SOLVER}${SOLVE_PATH}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ domain: DOMAIN, problem, number_of_plans: "1" }),
-  });
-  if (!submitted.ok)
-    throw new Error(
-      `solver refused: ${submitted.status} ${await submitted.text()}`,
-    );
-  const { result } = (await submitted.json()) as { result?: string };
-  if (result === undefined)
-    throw new Error("solver answered without a result url");
-
-  const expiry = Date.now() + DEADLINE_MS;
-  while (Date.now() < expiry) {
-    const res = await fetch(`${env.PDDL_SOLVER}${result}`);
-    if (!res.ok)
-      throw new Error(`solver result lost: ${res.status} ${await res.text()}`);
-    const body = (await res.json()) as {
-      status: string;
-      result?: { output?: { plan?: string } };
-    };
-    if (body.status === "PENDING") {
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-      continue;
-    }
-    if (body.status !== "ok") throw new Error(`solver ended ${body.status}`);
-    return parse(body.result?.output?.plan ?? "");
-  }
-  throw new Error(`solver still pending after ${DEADLINE_MS}ms`);
-}
-
 /**
  * The full action sequence serving the intention; undefined when there is
  * nothing to plan for.
@@ -195,6 +157,8 @@ export async function plan(
 ): Promise<Action[] | undefined> {
   const text = problem(intention, beliefs, grid, now);
   if (text === undefined) return undefined;
-  const actions = await solve(text);
+  const lines = await solve(DOMAIN, text);
+  if (lines === undefined) return undefined;
+  const actions = parse(lines);
   return actions.length > 0 ? actions : undefined;
 }

@@ -1,7 +1,9 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 import { believe } from "../src/beliefs.js";
+import { env } from "../src/env.js";
 import { grid } from "../src/grid.js";
-import { parse, problem } from "../src/pddl.js";
+import { parse, plan, problem } from "../src/pddl.js";
 import type { IOAgent, IOConfig } from "../src/sdk.js";
 import { tilesOf } from "./tiles.js";
 
@@ -64,5 +66,30 @@ describe("the plan text", () => {
 
   test("refuses an action it does not know", () => {
     expect(() => parse("(teleport t_0_0 t_9_9)")).toThrow(/teleport/);
+  });
+});
+
+const available = spawnSync(env.FAST_DOWNWARD, ["--version"]).status === 0;
+
+describe.skipIf(!available)("the domain, solved for real", () => {
+  test("pushes the crate aside to fetch", { timeout: 30_000 }, async () => {
+    const tiles = tilesOf(["00100", "35553"]);
+    const beliefs = believe({ me, tiles, config });
+    beliefs.seen(
+      {
+        positions: [],
+        agents: [],
+        parcels: [{ id: "p0", x: 2, y: 1, reward: 30 }],
+        crates: [{ id: "c0", x: 1, y: 0 }],
+      },
+      0,
+    );
+    const actions = await plan(
+      { kind: "fetch", id: "p0" },
+      beliefs,
+      grid(tiles),
+      0,
+    );
+    expect(actions).toEqual(["right", "right", "up", "pickup"]);
   });
 });
