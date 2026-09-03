@@ -67,6 +67,31 @@ describe("moving", () => {
     expect(asked).toEqual(["right", "right"]);
   });
 
+  test("does not ask the server for a tile somebody is standing on", async () => {
+    const { move, asked, beliefs } = harness(["333"], { x: 1, y: 0 }, [
+      { x: 2, y: 0 },
+    ]);
+    beliefs.seen({
+      positions: [{ x: 2, y: 0 }],
+      agents: [{ ...me(2, 0), id: "them" }],
+      parcels: [],
+      crates: [],
+    });
+
+    expect(await move.step("right")).toBe(false);
+    expect(move.open({ x: 1, y: 0 })).toEqual([["left", { x: 0, y: 0 }]]);
+    expect(asked).toEqual([]);
+
+    beliefs.seen({
+      positions: [{ x: 2, y: 0 }],
+      agents: [],
+      parcels: [],
+      crates: [],
+    });
+    expect(await move.step("right")).toBe(true);
+    expect(asked).toEqual(["right"]);
+  });
+
   test("what is open leaves out arrows and whatever just refused", async () => {
     const { move } = harness(["333", "3→3"], { x: 0, y: 0 }, [false]);
 

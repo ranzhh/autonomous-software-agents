@@ -1,6 +1,6 @@
 import type { Beliefs } from "./beliefs.js";
 import type { Grid, Route } from "./grid.js";
-import { key, MOVES } from "./position.js";
+import { key, MOVES, sameTile } from "./position.js";
 import type { Connection, Direction, Position } from "./sdk.js";
 
 const BLOCKED = 3_000;
@@ -19,18 +19,21 @@ export function mover(
   movementDuration: number,
 ): Mover {
   const refusedAt = new Map<string, number>();
+  const taken = (to: Position): boolean =>
+    beliefs.agents().some((a) => sameTile(a, to));
   const blocked = (to: Position): boolean =>
     (refusedAt.get(key(to.x, to.y)) ?? 0) > Date.now() - BLOCKED;
 
   const open = (at: Position): [Direction, Position][] =>
     board()
       .exits(at)
-      .filter(([, to]) => !blocked(to));
+      .filter(([, to]) => !taken(to) && !blocked(to));
 
   async function step(direction: Direction): Promise<boolean> {
     const at = beliefs.me();
     const to = { x: at.x + MOVES[direction].dx, y: at.y + MOVES[direction].dy };
-    if (blocked(to)) return false;
+    // A tile with somebody on it refuses, and every refusal costs a penalty (ioServer.js:506).
+    if (taken(to) || blocked(to)) return false;
     const landed = await game.move(direction);
     const me = game.me();
     if (me) beliefs.moved(me);
