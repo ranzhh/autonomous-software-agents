@@ -5,10 +5,9 @@ import type { Action, Intention } from "./plans.js";
 import type { Position } from "./sdk.js";
 
 /**
- * Means-ends reasoning as planning: turn an intention into the whole action
- * sequence by asking a PDDL solver, instead of walking a BFS distance field
- * one step at a time. Adjacency facts come from `grid.exits`, so the one-way
- * arrow tiles hold in the domain exactly as they do on the board.
+ * Means-ends reasoning as planning: an intention becomes a whole action
+ * sequence through a PDDL solver. Adjacency facts come from `grid.exits`,
+ * so the one-way arrow tiles hold in the domain as they do on the board.
  */
 
 // A move onto a crate's tile is a push: the crate slides one tile onward,
@@ -85,10 +84,10 @@ export function problem(
   const blocked = new Set(crates.map((c) => tile(c)));
 
   const facts = [`(at ${tile(at)})`];
-  for (const from of grid.tiles)
+  for (const from of grid.walkables)
     for (const [direction, to] of grid.exits(from))
       facts.push(`(${direction} ${tile(from)} ${tile(to)})`);
-  for (const t of grid.tiles)
+  for (const t of grid.walkables)
     if (!blocked.has(tile(t))) facts.push(`(clear ${tile(t)})`);
   for (const s of grid.slidables) facts.push(`(slidable ${tile(s)})`);
   for (const d of grid.deliveries) facts.push(`(delivery ${tile(d)})`);
@@ -98,7 +97,7 @@ export function problem(
 
   const parcels = [...loose, ...carried].map((p) => parcel(p.id));
   const objects = [
-    `${grid.tiles.map(tile).join(" ")} - tile`,
+    `${grid.walkables.map(tile).join(" ")} - tile`,
     ...(parcels.length > 0 ? [`${parcels.join(" ")} - parcel`] : []),
     ...(crates.length > 0
       ? [`${crates.map((c) => crate(c.id)).join(" ")} - crate`]
