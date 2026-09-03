@@ -7,8 +7,7 @@ import { type Action, deliberate, drift, type Intention } from "../plans.js";
 import { key, sameTile } from "../position.js";
 
 // Deliberation is shared with the deliberating agent; only the means differ:
-// a full plan from the PDDL solver, executed until beliefs invalidate it,
-// instead of one BFS step per tick.
+// whole plans from the PDDL solver, executed until beliefs invalidate them.
 await run(async (game, world) => {
   const beliefs = believe(world);
   let tiles = world.tiles;
@@ -66,7 +65,6 @@ await run(async (game, world) => {
           queue = planned;
           log.info({ intention, steps: queue.length }, "planned");
         } else {
-          // Nothing to plan for: drift toward where parcels spawn.
           const step =
             board.route(...board.spawners).step(at) ?? drift(board, at);
           queue = step ? [step] : [];
