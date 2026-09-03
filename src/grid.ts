@@ -42,7 +42,7 @@ type Cells = Int32Array | Int8Array | Uint8Array;
 
 const read = (cells: Cells, at: number): number => cells[at] as number;
 
-export function grid(tiles: IOTile[]): Grid {
+export function grid(tiles: IOTile[], banned: Position[] = []): Grid {
   let width = 0;
   let height = 0;
   for (const tile of tiles) {
@@ -50,6 +50,15 @@ export function grid(tiles: IOTile[]): Grid {
     height = Math.max(height, Math.round(tile.y) + 1);
   }
   const size = width * height;
+
+  // A banned tile can be left but never entered, so standing on one is not being walled in.
+  const shut = new Uint8Array(size);
+  for (const { x, y } of banned) {
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    if (cx >= 0 && cy >= 0 && cx < width && cy < height)
+      shut[cy * width + cx] = 1;
+  }
 
   const kind = new Uint8Array(size);
   // The direction this tile refuses to be entered from, as an index into STEPS.
@@ -69,7 +78,7 @@ export function grid(tiles: IOTile[]): Grid {
     refuses[at] =
       against === undefined ? NOWHERE : STEPS.findIndex(([d]) => d === against);
     kind[at] = OPEN;
-    if (!first) continue;
+    if (!first || read(shut, at) === 1) continue;
     if (tile.type === "2") deliveries.push({ x, y });
     else if (tile.type === "1") spawners.push({ x, y });
   }
@@ -95,7 +104,11 @@ export function grid(tiles: IOTile[]): Grid {
     const ty = y + read(DY, d);
     if (tx < 0 || ty < 0 || tx >= width || ty >= height) return NOWHERE;
     const to = ty * width + tx;
-    return read(kind, to) === WALL || read(refuses, to) === d ? NOWHERE : to;
+    return read(kind, to) === WALL ||
+      read(refuses, to) === d ||
+      read(shut, to) === 1
+      ? NOWHERE
+      : to;
   };
 
   const eachExit = (visit: (from: number, to: number) => void): void => {

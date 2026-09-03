@@ -114,4 +114,11 @@ describe("the board", () => {
     expect(g.deliveries).toEqual([{ x: 1, y: 0 }]);
     expect(g.spawners).toEqual([{ x: 0, y: 1 }]);
   });
+
+  test("a banned tile can be left but not entered", () => {
+    const board = grid(tilesOf(["3333"]), [{ x: 1, y: 0 }]);
+    expect(board.route({ x: 3, y: 0 }).distance({ x: 0, y: 0 })).toBe(Infinity);
+    expect(board.route({ x: 3, y: 0 }).distance({ x: 1, y: 0 })).toBe(2);
+    expect(board.exits({ x: 0, y: 0 })).toEqual([]);
+  });
 });
