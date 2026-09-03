@@ -1,14 +1,23 @@
 import type { Beliefs } from "./beliefs.js";
-import { type Batch, choose, supersedes } from "./choose.js";
+import {
+  type Batch,
+  choose,
+  conceded,
+  FRESH,
+  type Mates,
+  supersedes,
+} from "./choose.js";
 import { env } from "./env.js";
 import { type Field, fielding } from "./field.js";
-import { grid } from "./grid.js";
+import { type Grid, grid } from "./grid.js";
 import { log } from "./log.js";
 import { mover } from "./move.js";
 import { planning } from "./pddl/planner.js";
 import { fastDownward } from "./pddl/solver.js";
 import { key, MOVES, sameTile } from "./position.js";
-import type { Connection, Direction, World } from "./sdk.js";
+import type { Connection, Direction, Position, World } from "./sdk.js";
+import { type Share, sharing, type Told } from "./share.js";
+import type { Team } from "./team.js";
 import { pricedTour, type Tour, touring } from "./tour.js";
 import { value } from "./value.js";
 
@@ -17,27 +26,34 @@ export async function executive(
   game: Connection,
   world: World,
   beliefs: Beliefs,
+  team: Team | undefined,
   field: Field = fielding(beliefs, world.config, world.me.id),
 ): Promise<void> {
   let tiles = world.tiles;
   let board = grid(tiles);
+  let occupied: string | undefined;
+  let clear: Grid | undefined;
   const mine = world.me.id;
   let stale = true;
+  let share: Share | undefined;
+
   game.onSensing((sensing) => {
     const now = Date.now();
-    beliefs.seen(sensing, now);
+    const gone = beliefs.seen(sensing, now);
+    const mate = team?.mate();
     field.saw(
       board,
       mine,
       sensing.positions,
       sensing.parcels,
       sensing.agents.flatMap((a) =>
-        a.x === undefined || a.y === undefined
+        a.id === mate?.id || a.x === undefined || a.y === undefined
           ? []
           : [{ id: a.id, x: a.x, y: a.y }],
       ),
       now,
     );
+    share?.post(sensing, gone, now);
     stale = true;
   });
   game.onTile((tile) => {
@@ -46,6 +62,7 @@ export async function executive(
       tile,
     ];
     board = grid(tiles);
+    occupied = undefined;
     beliefs.changed(tile);
     stale = true;
   });
@@ -61,6 +78,36 @@ export async function executive(
 
   let generation = 0;
   let tour: Tour | undefined;
+  let scouting: Position | undefined;
+
+  const told = (): Told => ({
+    taken:
+      tour?.flatMap((stop) =>
+        stop.action === "pickup" ? [stop.parcel] : [],
+      ) ?? [],
+    stops: tour?.map((stop) => stop.at) ?? [],
+    going: tour === undefined ? scouting : undefined,
+  });
+
+  share =
+    team &&
+    sharing(team, beliefs, told, ({ from, sighted, others, banked }) => {
+      field.saw(
+        board,
+        from.id,
+        beliefs.viewFrom(from.x, from.y),
+        sighted,
+        others.filter((a) => a.id !== mine),
+        from.seenAt,
+      );
+      const known = beliefs.parcels(from.seenAt);
+      field.banked(
+        banked.flatMap((id) => {
+          const p = known.find((k) => k.id === id);
+          return p ? [{ id, reward: p.reward }] : [];
+        }),
+      );
+    });
 
   const stepping = async (direction: Direction): Promise<boolean> => {
     const from = beliefs.me();
@@ -72,6 +119,13 @@ export async function executive(
     field.stepped(to, landed);
     return landed;
   };
+
+  function teammate(): Mates | undefined {
+    const mate = team?.mate();
+    if (mate === undefined || share === undefined) return undefined;
+    const at = beliefs.agents().find((a) => a.id === mate.id);
+    return { id: mate.id, at, claimed: share.claimed() };
+  }
 
   function commit(batch: Batch): void {
     generation++;
@@ -113,17 +167,20 @@ export async function executive(
   function lost(): boolean {
     if (tour === undefined) return false;
     const known = beliefs.parcels();
+    const mate = teammate();
+    const at = beliefs.me();
     return tour.some((stop) => {
       if (stop.action !== "pickup") return false;
       const still = known.find((p) => p.id === stop.parcel);
-      return (
-        still === undefined || (!!still.carriedBy && still.carriedBy !== mine)
-      );
+      if (still === undefined) return true;
+      if (still.carriedBy && still.carriedBy !== mine) return true;
+      if (mate === undefined || !mate.claimed.has(stop.parcel)) return false;
+      return conceded(still, at, mine, mate, board);
     });
   }
 
   function reconsider(): void {
-    const batch = choose(beliefs, board, world.config);
+    const batch = choose(beliefs, board, world.config, Date.now(), teammate());
     const held = remaining();
     const cause = supersedes(batch, held, lost());
     if (cause === undefined) return;
@@ -136,18 +193,50 @@ export async function executive(
 
   async function explore(): Promise<void> {
     const at = beliefs.me();
+    const mate = team?.mate();
     const { chosen } = field.assess(
       board,
       beliefs.agents(),
-      undefined,
+      mate && { id: mate.id, intent: share?.intent() },
       Date.now(),
       true,
     );
-    const next = chosen && board.route(chosen).step(at);
+    scouting = chosen && { x: chosen.x, y: chosen.y };
+    const next = scouting && board.route(scouting).step(at);
     if (next !== undefined && (await stepping(next))) return;
     const around = move.open(at);
     const drift = around[Math.floor(Math.random() * around.length)];
     if (drift === undefined || !(await stepping(drift[0]))) await move.pace();
+  }
+
+  // Agents are not walls, so a route walks straight through one. This is the same board
+  // with whoever is standing on it walled off, rebuilt only when one of them moves.
+  function unblocked(): Grid {
+    // A teammate's sighting outlives our own, which is retired the moment we look;
+    // walling a tile on a stale one would shut a corridor nobody is in.
+    const now = Date.now();
+    const on = beliefs
+      .agents()
+      .filter((a) => now - a.seenAt < FRESH)
+      .map((a) => ({ x: Math.round(a.x), y: Math.round(a.y) }));
+    const at = on
+      .map((p) => key(p.x, p.y))
+      .sort()
+      .join(" ");
+    if (clear === undefined || at !== occupied) {
+      occupied = at;
+      clear = grid(tiles, on);
+    }
+    return clear;
+  }
+
+  // Only a standoff with our own agent is one both sides can end, and only the higher id
+  // ends it; giving way to a rival buys a refusal and no ground.
+  function yields(at: Position, to: Direction): boolean {
+    const mate = team?.mate();
+    if (mate === undefined || mine < mate.id) return false;
+    const ahead = { x: at.x + MOVES[to].dx, y: at.y + MOVES[to].dy };
+    return beliefs.agents().some((a) => a.id === mate.id && sameTile(a, ahead));
   }
 
   function advance(): void {
@@ -189,6 +278,7 @@ export async function executive(
       const delivered = await game.putdown();
       beliefs.gave();
       field.banked(dropping.map((p) => ({ id: p.id, reward: p.reward })));
+      share?.bank(dropping.map((p) => p.id));
       log.info({ delivered }, "delivered");
       advance();
       continue;
@@ -204,6 +294,9 @@ export async function executive(
       continue;
     }
     if (await stepping(next)) continue;
-    if (!(await move.sidestep(next, route))) await move.pace();
+    const past = unblocked().route(stop.at).step(at);
+    if (past !== undefined && past !== next && (await stepping(past))) continue;
+    if (!(await move.sidestep(next, route, yields(at, next))))
+      await move.pace();
   }
 }
