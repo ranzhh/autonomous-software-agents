@@ -47,6 +47,14 @@ export interface Parcel {
   reward: number;
 }
 
+/** A payload read as a record, or nothing when it is not one. */
+export const fields = (
+  payload: unknown,
+): Record<string, unknown> | undefined =>
+  typeof payload === "object" && payload !== null
+    ? (payload as Record<string, unknown>)
+    : undefined;
+
 export interface Message {
   from: { id: string; name: string };
   payload: unknown;
