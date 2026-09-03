@@ -11,9 +11,25 @@ import type { Position } from "./sdk.js";
  * arrow tiles hold in the domain exactly as they do on the board.
  */
 
+// A move onto a crate's tile is a push: the crate slides one tile onward,
+// so it must land on a slidable ('5') tile holding no other crate. `clear`
+// tracks crates only; other agents stay outside the domain.
+const MOVE = (d: string) => `  (:action move-${d}
+    :parameters (?from ?to - tile)
+    :precondition (and (at ?from) (${d} ?from ?to) (clear ?to))
+    :effect (and (not (at ?from)) (at ?to)))`;
+
+const PUSH = (d: string) => `  (:action push-${d}
+    :parameters (?c - crate ?from ?mid ?to - tile)
+    :precondition (and (at ?from) (${d} ?from ?mid) (crate-at ?c ?mid)
+                       (${d} ?mid ?to) (slidable ?to) (clear ?to))
+    :effect (and (not (at ?from)) (at ?mid)
+                 (not (crate-at ?c ?mid)) (crate-at ?c ?to)
+                 (clear ?mid) (not (clear ?to))))`;
+
 export const DOMAIN = `(define (domain deliveroo)
   (:requirements :strips :typing)
-  (:types tile parcel)
+  (:types tile parcel crate)
   (:predicates
     (at ?t - tile)
     (up ?from ?to - tile)
@@ -23,23 +39,11 @@ export const DOMAIN = `(define (domain deliveroo)
     (on ?p - parcel ?t - tile)
     (carrying ?p - parcel)
     (delivery ?t - tile)
-    (delivered ?p - parcel))
-  (:action move-up
-    :parameters (?from ?to - tile)
-    :precondition (and (at ?from) (up ?from ?to))
-    :effect (and (not (at ?from)) (at ?to)))
-  (:action move-down
-    :parameters (?from ?to - tile)
-    :precondition (and (at ?from) (down ?from ?to))
-    :effect (and (not (at ?from)) (at ?to)))
-  (:action move-right
-    :parameters (?from ?to - tile)
-    :precondition (and (at ?from) (right ?from ?to))
-    :effect (and (not (at ?from)) (at ?to)))
-  (:action move-left
-    :parameters (?from ?to - tile)
-    :precondition (and (at ?from) (left ?from ?to))
-    :effect (and (not (at ?from)) (at ?to)))
+    (delivered ?p - parcel)
+    (crate-at ?c - crate ?t - tile)
+    (clear ?t - tile)
+    (slidable ?t - tile))
+${["up", "down", "right", "left"].flatMap((d) => [MOVE(d), PUSH(d)]).join("\n")}
   (:action pickup
     :parameters (?p - parcel ?t - tile)
     :precondition (and (at ?t) (on ?p ?t))
@@ -51,6 +55,7 @@ export const DOMAIN = `(define (domain deliveroo)
 
 const tile = (p: Position): string => `t_${Math.round(p.x)}_${Math.round(p.y)}`;
 const parcel = (id: string): string => `p_${id}`;
+const crate = (id: string): string => `c_${id}`;
 
 /**
  * The problem for an intention, from what is believed right now; undefined
@@ -76,11 +81,18 @@ export function problem(
     goal = `(at ${tile(intention)})`;
   if (goal === undefined) return undefined;
 
+  const crates = beliefs.crates();
+  const blocked = new Set(crates.map((c) => tile(c)));
+
   const facts = [`(at ${tile(at)})`];
   for (const from of grid.tiles)
     for (const [direction, to] of grid.exits(from))
       facts.push(`(${direction} ${tile(from)} ${tile(to)})`);
+  for (const t of grid.tiles)
+    if (!blocked.has(tile(t))) facts.push(`(clear ${tile(t)})`);
+  for (const s of grid.slidables) facts.push(`(slidable ${tile(s)})`);
   for (const d of grid.deliveries) facts.push(`(delivery ${tile(d)})`);
+  for (const c of crates) facts.push(`(crate-at ${crate(c.id)} ${tile(c)})`);
   for (const p of loose) facts.push(`(on ${parcel(p.id)} ${tile(p)})`);
   for (const p of carried) facts.push(`(carrying ${parcel(p.id)})`);
 
@@ -88,6 +100,9 @@ export function problem(
   const objects = [
     `${grid.tiles.map(tile).join(" ")} - tile`,
     ...(parcels.length > 0 ? [`${parcels.join(" ")} - parcel`] : []),
+    ...(crates.length > 0
+      ? [`${crates.map((c) => crate(c.id)).join(" ")} - crate`]
+      : []),
   ];
   return `(define (problem deliveroo-${intention.kind})
   (:domain deliveroo)
@@ -96,11 +111,16 @@ export function problem(
   (:goal ${goal}))`;
 }
 
+// A push is executed as the move into the crate; the server slides it.
 const NAMES: Record<string, Action> = {
   "move-up": "up",
   "move-down": "down",
   "move-right": "right",
   "move-left": "left",
+  "push-up": "up",
+  "push-down": "down",
+  "push-right": "right",
+  "push-left": "left",
   pickup: "pickup",
   putdown: "putdown",
 };
@@ -109,6 +129,7 @@ const NAMES: Record<string, Action> = {
 export function parse(plan: string): Action[] {
   const actions: Action[] = [];
   for (const line of plan.split("\n")) {
+    if (line.trimStart().startsWith(";")) continue;
     const name = line.match(/\(\s*([a-z-]+)/i)?.[1]?.toLowerCase();
     if (name === undefined) continue;
     const action = NAMES[name];

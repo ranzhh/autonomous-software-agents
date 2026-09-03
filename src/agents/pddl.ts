@@ -93,8 +93,8 @@ await run(async (game, world) => {
       log.info({ delivered }, "delivered");
     } else {
       const landed = await game.move(action);
-      // A refusal means someone is in the way the plan knows nothing about;
-      // the rest of the plan starts from a tile we never reached, so drop it.
+      // A refusal means the step hit an agent, or a crate the beliefs had
+      // elsewhere; the rest of the plan starts from a tile we never reached.
       if (landed === false) {
         stale = true;
         queue = [];
