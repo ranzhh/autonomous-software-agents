@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { runBenchmark } from "./lib.js";
+import { SUITE } from "./suite.js";
 
 /**
  * Within-seed pilot: the same agent on the same map and seed, repeated, next to
@@ -9,7 +10,7 @@ import { runBenchmark } from "./lib.js";
  */
 const { values } = parseArgs({
   options: {
-    maps: { type: "string", default: "26c1_3,26c1_1" },
+    maps: { type: "string", default: SUITE.join(",") },
     agent: { type: "string", default: "greedy" },
     duration: { type: "string", default: "120" },
     repeats: { type: "string", default: "5" },

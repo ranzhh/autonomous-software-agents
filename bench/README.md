@@ -9,6 +9,8 @@ the game's random draws (parcel reward, spawn tile, agent placement, NPC moves)
 its own stream derived from `SEED`. With `SEED` unset the server behaves as
 upstream. Apply it from the Deliveroo.js root with `patch -p1 < bench/deliveroo-seed.patch`.
 
+The map suite is `suite.ts`; the pilot runs it by default, `--maps` narrows it.
+
 Point `DELIVEROO_SERVER` (in `.env`) at the server's `backend/` directory.
 
 ```sh
