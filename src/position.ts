@@ -1,6 +1,6 @@
 import type { Direction, Position } from "./sdk.js";
 
-// Carried parcels ride their carrier, so mid-move coordinates can be fractional.
+// Coordinates are fractional mid-move, carried parcels included; round to the tile.
 export const key = (x: number, y: number): string =>
   `${Math.round(x)},${Math.round(y)}`;
 

@@ -150,7 +150,7 @@ process.once("SIGTERM", () => {
   stop();
   process.exit(143);
 });
-// A crash anywhere above still sweeps the current run's agents.
+// On a crash anywhere above, this still kills the current run's agents.
 process.once("exit", stop);
 
 async function race(

@@ -314,8 +314,8 @@ describe("lost acks", () => {
 });
 
 describe("acknowledged parcels", () => {
-  // Captured from a local server. `carriedBy` and `expired` ride along
-  // undeclared; one capture is not enough to pin their types.
+  // Captured from a local server. The SDK does not declare `carriedBy` and
+  // `expired`; one capture is not enough to pin their types.
   const picked = [
     {
       xy: { x: 10, y: 0 },

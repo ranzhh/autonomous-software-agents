@@ -11,7 +11,7 @@ export type Intention =
   | { kind: "scout"; x: number; y: number }
   | { kind: "explore" };
 
-/** A challenger must beat the held intention by this factor, against dithering. */
+/** A challenger must beat the held intention by this factor to prevent dithering. */
 const MARGIN = 1.2;
 
 const same = (a: Intention, b: Intention): boolean => {
@@ -38,7 +38,7 @@ export function deliberate(
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
   const carried = beliefs.carrying(now);
 
-  // Reward each parcel sheds per step travelled; zero when rewards never decay.
+  // Reward lost per step travelled; zero when rewards never decay.
   const perStep =
     config.GAME.player.movement_duration /
     msOf(config.GAME.parcels.decaying_event, config.CLOCK);
@@ -108,7 +108,7 @@ export function pursue(
   const at = { x: me.x ?? 0, y: me.y ?? 0 };
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
 
-  // Whatever the intention, a loose parcel underfoot is free value.
+  // Grab loose parcels underfoot first; it costs no steps.
   if (loose.some((p) => sameTile(p, at))) return "pickup";
 
   if (intention.kind === "home") {
@@ -125,9 +125,9 @@ export function pursue(
 }
 
 /**
- * The next action, asked fresh after every completed one: grab what is here,
- * bring home what we carry, chase the nearest known parcel, else go where
- * parcels spawn. Undefined when boxed in.
+ * Recompute the next action after every completed one: pick up parcels
+ * here, deliver what is carried, chase the nearest known parcel, else head
+ * for the spawners. Undefined when boxed in.
  */
 export function naive(
   beliefs: Beliefs,
@@ -154,7 +154,7 @@ export function naive(
   const spawn = grid.route(...grid.spawners).step(at);
   if (spawn) return spawn;
 
-  // On a spawner with nothing to do: drift, so new parcels come into view.
+  // Drift when idle on a spawner so new parcels come into view.
   return drift(grid, at);
 }
 

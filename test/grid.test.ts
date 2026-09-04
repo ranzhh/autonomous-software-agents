@@ -19,7 +19,7 @@ describe("route", () => {
 
     expect(g.route({ x: 2, y: 0 }).distance({ x: 0, y: 0 })).toBe(2);
     expect(g.route({ x: 0, y: 0 }).distance({ x: 2, y: 0 })).toBe(Infinity);
-    // Leaving an arrow sideways is not the tile's business, only entering it.
+    // Sideways exits from an arrow are allowed; only entry against it is refused.
     expect(g.route({ x: 1, y: 1 }).distance({ x: 0, y: 0 })).toBe(2);
     expect(g.route({ x: 1, y: 1 }).step({ x: 1, y: 0 })).toBe("up");
   });

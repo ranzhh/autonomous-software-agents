@@ -54,8 +54,8 @@ await run(async (game, world) => {
       log.info({ delivered }, "delivered");
     } else {
       const landed = await game.move(action);
-      // A refusal replans into the same blocked step, since the grid knows
-      // nothing of whoever is in the way; sidestep and reconsider.
+      // The grid does not model agents, so a replan repeats the blocked
+      // step; sidestep and reconsider.
       if (landed === false) {
         stale = true;
         const { x = 0, y = 0 } = beliefs.me();
