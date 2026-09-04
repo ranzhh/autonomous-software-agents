@@ -81,34 +81,30 @@ print(summary.round(1).to_string(index=False))
 summary.to_csv(figures / "pilot_summary.csv", index=False)
 runs.to_csv(figures / "pilot_runs.csv", index=False)
 
-# Figure: score over time, one panel per map. Repeated seed in colour, others grey.
+# Figure: score over time, one panel per map. The repeated seed's runs share a
+# family of blues; every other seed gets its own clearly different colour.
 maps = sorted(series["map"].unique())
-fig, axes = plt.subplots(1, len(maps), figsize=(5 * len(maps), 3.6), sharey=False, squeeze=False)
+blues = plt.cm.Blues
+others = ["#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
+fig, axes = plt.subplots(1, len(maps), figsize=(5 * len(maps), 3.6), squeeze=False)
 for ax, m in zip(axes[0], maps):
     g = series[series["map"] == m]
-    repeated_seed = runs[runs["map"] == m].seed.value_counts().idxmax()
+    counts = runs[runs["map"] == m].seed.value_counts()
+    repeated_seed = counts.idxmax()
+    other_seeds = sorted(s for s in counts.index if s != repeated_seed)
+    reps = sorted(g[g.seed == repeated_seed].rep.unique())
     for (seed, rep), run in g.groupby(["seed", "rep"]):
-        same = seed == repeated_seed
-        ax.plot(
-            run.t,
-            run.score,
-            color="#1f77b4" if same else "#9e9e9e",
-            alpha=0.9 if same else 0.6,
-            lw=1.4 if same else 1.0,
-            label=(f"seed {seed}, {int(runs[(runs['map']==m)&(runs.seed==seed)].shape[0])} runs" if same else "other seeds")
-            if rep == "0"
-            else None,
-        )
+        if seed == repeated_seed:
+            shade = 0.45 + 0.5 * reps.index(rep) / max(len(reps) - 1, 1)
+            ax.plot(run.t, run.score, color=blues(shade), lw=1.6, label=f"seed {seed} (x{len(reps)})" if rep == reps[0] else None)
+        else:
+            ax.plot(run.t, run.score, color=others[other_seeds.index(seed) % len(others)], lw=1.2, ls="--", label=f"seed {seed}")
     ax.set_title(m)
     ax.set_xlabel("seconds since spawn")
     ax.set_ylabel("score")
-    handles, labels = ax.get_legend_handles_labels()
-    seen = {}
-    for h, l in zip(handles, labels):
-        seen.setdefault(l, h)
-    ax.legend(seen.values(), seen.keys(), frameon=False, fontsize=8)
+    ax.legend(frameon=False, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
-fig.suptitle(f"{runs.agent.iloc[0]} agent, {int(runs.duration.iloc[0])} s runs: same seed in blue, other seeds in grey", fontsize=10)
+fig.suptitle(f"{runs.agent.iloc[0]} agent, {int(runs.duration.iloc[0])} s runs: repeated seed in blues, other seeds dashed", fontsize=10)
 fig.tight_layout()
 fig.savefig(figures / "pilot_score_over_time.pdf")
 fig.savefig(figures / "pilot_score_over_time.png", dpi=160)
