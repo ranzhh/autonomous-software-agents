@@ -16,12 +16,22 @@ SEEDS = 3
 DURATION = 150
 
 
-def bench(agents: list[str], maps: list[str], *, campaign: str, time: int, seed: int, seeds: int, parallel: int) -> None:
-    """One bench.ts invocation: the agents race on every map, seeds seed..seed+seeds-1."""
+def bench(
+    agents: list[str],
+    maps: list[str],
+    *,
+    campaign: str,
+    time: int,
+    seed: int,
+    seeds: int,
+    parallel: int,
+    extra: list[str] = [],
+) -> None:
+    """One bench.ts invocation: the agents on every map, seeds seed..seed+seeds-1."""
     cmd = [
         "npx", "tsx", "--env-file-if-exists=.env", "src/bench.ts", *agents,
         "--time", str(time), "--runs", str(seeds), "--seed", str(seed),
-        "--parallel", str(parallel), "--campaign", campaign,
+        "--parallel", str(parallel), "--campaign", campaign, *extra,
     ]
     for m in maps:
         cmd += ["--map", m]

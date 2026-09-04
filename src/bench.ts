@@ -1,12 +1,19 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
-import { parallelMap, type RunMeta, runBenchmark } from "../bench/lib.js";
+import {
+  type Mission,
+  parallelMap,
+  type RunMeta,
+  runBenchmark,
+} from "../bench/lib.js";
 import { SUITE } from "../bench/suite.js";
 
 // usage: bench.ts <agent>... [--time s] [--runs n] [--map name|file.json]...
 //                 [--seed n] [--server dir] [--parallel n] [--campaign name]
+//                 [--teams separate|shared] [--missions file.json]
 // One fresh server per run. Run k of n uses seed + k - 1, on the server and
-// every agent alike. Without --map the suite is the matrix.
+// every agent alike. Without --map the suite is the matrix. Missions are a
+// JSON list of { t, text }, told to every agent t seconds into the run.
 
 const args = process.argv.slice(2);
 const agents: string[] = [];
@@ -17,6 +24,8 @@ let seed = 1;
 let parallel = 2;
 let server = process.env.DELIVEROO_SERVER;
 let campaign = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
+let teams: "separate" | "shared" = "separate";
+let missionsFile: string | undefined;
 for (let i = 0; i < args.length; i++) {
   const arg = args[i] as string;
   if (arg === "--time") seconds = Number(args[++i]);
@@ -26,12 +35,18 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--server") server = args[++i];
   else if (arg === "--parallel") parallel = Number(args[++i]);
   else if (arg === "--campaign") campaign = args[++i] as string;
+  else if (arg === "--teams") {
+    const value = args[++i];
+    if (value !== "separate" && value !== "shared")
+      throw new Error(`--teams takes separate or shared, not ${value}`);
+    teams = value;
+  } else if (arg === "--missions") missionsFile = args[++i];
   else agents.push(arg);
 }
 
 if (agents.length === 0)
   throw new Error(
-    "usage: bench.ts <agent>... [--time s] [--runs n] [--map name|file.json]... [--seed n] [--server dir] [--parallel n] [--campaign name]",
+    "usage: bench.ts <agent>... [--time s] [--runs n] [--map name|file.json]... [--seed n] [--server dir] [--parallel n] [--campaign name] [--teams separate|shared] [--missions file.json]",
   );
 for (const agent of agents)
   if (!existsSync(`src/agents/${agent}.ts`))
@@ -42,6 +57,20 @@ for (const map of maps)
 if (!server)
   throw new Error("pass --server or set DELIVEROO_SERVER to the backend dir");
 const serverDir = server;
+if (missionsFile && !existsSync(missionsFile))
+  throw new Error(`no such missions file: ${missionsFile}`);
+const missions: Mission[] = missionsFile
+  ? (JSON.parse(readFileSync(missionsFile, "utf8")) as Mission[])
+  : [];
+for (const m of missions)
+  if (typeof m.t !== "number" || typeof m.text !== "string")
+    throw new Error(
+      `missions must be { t: number, text: string }: ${JSON.stringify(m)}`,
+    );
+if (missions.some((m) => m.t >= seconds))
+  throw new Error(
+    `a mission is scheduled at or after the run ends (${seconds}s)`,
+  );
 
 const boards = maps.length > 0 ? maps : [...SUITE];
 const labelOf = (map: string) => basename(map).replace(/\.json$/, "");
@@ -99,7 +128,7 @@ const table = (rows: (string | number)[][]): void => {
 };
 
 console.log(
-  `${agents.join(" vs ")}, ${runs} run(s) of ${seconds}s on ${boards.map(labelOf).join(", ")}, seeds ${seed}..${seed + runs - 1}, ${parallel} at a time`,
+  `${agents.join(teams === "shared" ? " & " : " vs ")}, ${runs} run(s) of ${seconds}s on ${boards.map(labelOf).join(", ")}, seeds ${seed}..${seed + runs - 1}, ${parallel} at a time${missions.length > 0 ? `, ${missions.length} mission(s)` : ""}`,
 );
 
 const metas = await parallelMap(jobs, parallel, async (job, index) => {
@@ -111,6 +140,8 @@ const metas = await parallelMap(jobs, parallel, async (job, index) => {
     port: 8100 + index,
     server: serverDir,
     out: outDir(job),
+    teams,
+    missions,
   });
   console.log(`\n${labelOf(job.map)} seed ${job.seed}`);
   const s = series(meta);

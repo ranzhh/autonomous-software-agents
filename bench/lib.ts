@@ -3,6 +3,7 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -13,7 +14,8 @@ import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
  * One run: a fresh server on `map` with `seed`, the listed agents racing on it,
  * `duration` seconds from the moment the last of them has spawned. An admin
  * observer, which has no position and sees the whole grid, snapshots it once a
- * second.
+ * second. With missions, an admin "director" on the agents' team tells each of
+ * them the mission text over chat at the given second.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */
@@ -29,6 +31,15 @@ export interface RunOptions {
   /** Output directory for this run; created if missing. */
   out: string;
   team?: string;
+  /** Own team per agent (the default), or one team shared by all. */
+  teams?: "separate" | "shared";
+  missions?: Mission[];
+}
+
+export interface Mission {
+  /** Seconds after the last agent spawned. */
+  t: number;
+  text: string;
 }
 
 export interface Snapshot {
@@ -45,6 +56,7 @@ export interface AgentResult {
   /** Identity name: the script basename, suffixed when repeated. */
   name: string;
   id: string;
+  teamId: string | undefined;
   finalScore: number;
   finalPenalty: number;
 }
@@ -157,12 +169,28 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       `${server} is not patched for seeding: apply bench/deliveroo-seed.patch`,
     );
   const team = options.team ?? "bench";
+  const teams = options.teams ?? "separate";
+  if (
+    teams === "shared" &&
+    !readFileSync(
+      join(server, "src", "middlewares", "token.js"),
+      "utf8",
+    ).includes("|| (teamName ?")
+  )
+    throw new Error(
+      `${server} does not inherit teams from a token: apply bench/deliveroo-team.patch`,
+    );
+  const missions = [...(options.missions ?? [])].sort((a, b) => a.t - b.t);
   const host = `http://localhost:${port}`;
   mkdirSync(out, { recursive: true });
 
   const startedAt = new Date().toISOString();
   const serverLog = createWriteStream(join(out, "server.log"));
   const observerLog = createWriteStream(join(out, "observer.ndjson"));
+  const missionLog =
+    missions.length > 0
+      ? createWriteStream(join(out, "missions.ndjson"))
+      : undefined;
   const agentLogs: ReturnType<typeof createWriteStream>[] = [];
 
   const gameEnv = map.endsWith(".json") ? {} : { GAME_NAME: map };
@@ -181,13 +209,18 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
 
   const agentProcesses: ChildProcess[] = [];
   let observer: ReturnType<typeof DjsConnect> | undefined;
+  let director: ReturnType<typeof DjsConnect> | undefined;
+  const timers: ReturnType<typeof setTimeout>[] = [];
 
   const cleanup = async () => {
+    for (const timer of timers) clearTimeout(timer);
+    director?.disconnect();
     observer?.disconnect();
     await Promise.all(agentProcesses.map((child) => terminate(child)));
     await terminate(serverProcess);
     serverLog.end();
     observerLog.end();
+    missionLog?.end();
     for (const log of agentLogs) log.end();
   };
 
@@ -217,9 +250,16 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
 
     const names = identityNames(agents);
     const identities: { agent: string; name: string; id: string }[] = [];
+    // A mint that carries a teammate's token inherits its teamId; otherwise
+    // the server mints a new team per token, whatever the team label says.
+    let teamToken: string | undefined;
     for (const [i, agent] of agents.entries()) {
       const name = names[i] as string;
-      const identity = await mintToken(host, { name, team });
+      const identity = await mintToken(
+        host,
+        teamToken ? { name, authorization: teamToken } : { name, team },
+      );
+      if (teams === "shared") teamToken ??= identity.token;
       identities.push({ agent, name, id: identity.id });
       const log = createWriteStream(join(out, `${name}.log`));
       agentLogs.push(log);
@@ -263,8 +303,40 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
           throw new Error(`${names[i]} exited with ${child.exitCode}`);
       await sleep(50);
     }
+    // The director connects after the agents so it draws no placement of theirs.
+    if (missions.length > 0) {
+      const admin = await mintToken(host, {
+        name: "director",
+        password: ADMIN_PASSWORD,
+        ...(teamToken ? { authorization: teamToken } : {}),
+      });
+      director = DjsConnect(host, admin.token, "director");
+    }
+
     const t0 = Date.now();
     const spawnedAt = new Date(t0).toISOString();
+
+    for (const mission of missions) {
+      const socket = director;
+      if (socket === undefined) break;
+      timers.push(
+        setTimeout(async () => {
+          const payload = { kind: "mission", text: mission.text };
+          const acks = await Promise.all(
+            identities.map(({ id }) => socket.emitSay(id, payload)),
+          );
+          missionLog?.write(
+            `${JSON.stringify({
+              t: (Date.now() - t0) / 1000,
+              wall: Date.now(),
+              text: mission.text,
+              to: identities.map(({ name }) => name),
+              acks,
+            })}\n`,
+          );
+        }, mission.t * 1_000),
+      );
+    }
 
     const snapshot = (): Snapshot => ({
       t: (Date.now() - t0) / 1000,
@@ -289,6 +361,7 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
         agent,
         name,
         id,
+        teamId: final?.teamId,
         finalScore: final?.score ?? 0,
         finalPenalty: final?.penalty ?? 0,
       };
@@ -301,6 +374,8 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       out,
       server,
       team,
+      teams,
+      missions,
       agents: results,
       serverRevision: about.commitHash,
       serverVersion: about.packageVersion,

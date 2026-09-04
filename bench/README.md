@@ -8,7 +8,8 @@ admin observer with no position snapshots every agent and parcel once a second.
 Runs need the server patched for seeding: `deliveroo-seed.patch` gives each of
 the game's random draws (parcel reward, spawn tile, agent placement, NPC moves)
 its own stream derived from `SEED`. With `SEED` unset the server behaves as
-upstream. Apply it from the Deliveroo.js root with `patch -p1 < bench/deliveroo-seed.patch`.
+upstream. Apply it from the Deliveroo.js root with `patch -p1 < bench/deliveroo-seed.patch`,
+and `deliveroo-team.patch` the same way.
 
 The map suite is `suite.ts`; the pilot runs it by default, `--maps` narrows it.
 
@@ -23,16 +24,27 @@ uv run bench/analysis/pilot.py bench/results/pilot
 
 Several agents in one run race on the same server under separate identities.
 
-The two campaigns are `solo.py`, one agent alone on every map, and
-`competition.py`, every agent on one map with the spawn order shuffled per
-attempt. Both use seeds 42, 43, 44 and 150 s, and list their maps in
+The campaigns are `solo.py`, one agent alone on every map; `competition.py`,
+every agent on one map, each on its own team; and `collaboration.py`, the
+agents on one team with an admin "director" telling each of them missions
+over chat. The last two share `multi.py`, which shuffles the spawn order per
+attempt. All use seeds 42, 43, 44 and 150 s, and list their maps in
 `campaign.py`.
 
 ```sh
 uv run bench/solo.py deliberate                  # bench/results/solo/deliberate/
 uv run bench/competition.py                      # every map in the suite
 uv run bench/competition.py 26c1_3 --attempts 4  # bench/results/competition/26c1_3/attempt-<k>/
+uv run bench/collaboration.py --agents pddl,pddl --missions bench/missions/example.json
 ```
+
+Missions are a JSON list of `{ t, text }`; at second `t` the director says
+`{ kind: "mission", text }` to every agent. The run records each one in
+`missions.ndjson` and every agent's log records it as `heard`.
+
+A shared team needs the server patched as well: the token route never
+inherited a teammate's `teamId` (an operator-precedence slip), so
+`deliveroo-team.patch` fixes that. Apply it like the seed patch.
 
 Each run directory holds `meta.json` (map, seed, agent id, server revision,
 final score and penalty, the server config), `observer.ndjson` (one snapshot
