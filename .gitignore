@@ -3,3 +3,4 @@ node_modules
 .run
 bench/results/
 bench/figures/
+__pycache__/

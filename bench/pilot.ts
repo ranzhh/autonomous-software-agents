@@ -56,7 +56,7 @@ await parallelMap(pending, Number(values.parallel), async (job, index) => {
   const meta = await runBenchmark({
     map: job.map,
     seed: job.seed,
-    agents: [values.agent],
+    agents: [{ agent: values.agent, team: values.agent }],
     duration,
     port,
     server,

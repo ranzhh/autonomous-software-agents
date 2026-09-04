@@ -3,6 +3,7 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -10,17 +11,17 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
 
 /**
- * One run: a fresh server on `map` with `seed`, the listed agents racing on it,
- * `duration` seconds from the moment the last of them has spawned. An admin
- * observer, which has no position and sees the whole grid, snapshots it once a
- * second.
+ * One run: a fresh server on `map` with `seed`, the listed agents on it in
+ * their teams, `duration` seconds from the moment the last of them has spawned.
+ * An admin observer, which has no position and sees the whole grid, snapshots
+ * it once a second.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */
   map: string;
   seed: string;
-  /** Basenames of scripts in src/agents/; a repeated name runs twice. */
-  agents: string[];
+  /** In spawn order; a repeated script runs twice. */
+  agents: Member[];
   /** Seconds of play after every agent has spawned. */
   duration: number;
   port: number;
@@ -28,7 +29,13 @@ export interface RunOptions {
   server: string;
   /** Output directory for this run; created if missing. */
   out: string;
-  team?: string;
+}
+
+export interface Member {
+  /** Script basename in src/agents/. */
+  agent: string;
+  /** Members sharing a team name share the server's team. */
+  team: string;
 }
 
 export interface Snapshot {
@@ -45,6 +52,8 @@ export interface AgentResult {
   /** Identity name: the script basename, suffixed when repeated. */
   name: string;
   id: string;
+  team: string;
+  teamId: string | undefined;
   finalScore: number;
   finalPenalty: number;
 }
@@ -156,7 +165,19 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
     throw new Error(
       `${server} is not patched for seeding: apply bench/deliveroo-seed.patch`,
     );
-  const team = options.team ?? "bench";
+  const teamSizes = new Map<string, number>();
+  for (const { team } of agents)
+    teamSizes.set(team, (teamSizes.get(team) ?? 0) + 1);
+  if (
+    [...teamSizes.values()].some((size) => size > 1) &&
+    !readFileSync(
+      join(server, "src", "middlewares", "token.js"),
+      "utf8",
+    ).includes("|| (teamName ?")
+  )
+    throw new Error(
+      `${server} does not inherit teams from a token: apply bench/deliveroo-team.patch`,
+    );
   const host = `http://localhost:${port}`;
   mkdirSync(out, { recursive: true });
 
@@ -215,12 +236,25 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       latest = sensing;
     });
 
-    const names = identityNames(agents);
-    const identities: { agent: string; name: string; id: string }[] = [];
-    for (const [i, agent] of agents.entries()) {
+    const names = identityNames(agents.map((m) => m.agent));
+    const identities: {
+      agent: string;
+      name: string;
+      team: string;
+      id: string;
+    }[] = [];
+    // A mint that carries a teammate's token inherits its teamId; otherwise
+    // the server mints a new team per token, whatever the team label says.
+    const teamTokens = new Map<string, string>();
+    for (const [i, { agent, team }] of agents.entries()) {
       const name = names[i] as string;
-      const identity = await mintToken(host, { name, team });
-      identities.push({ agent, name, id: identity.id });
+      const teamToken = teamTokens.get(team);
+      const identity = await mintToken(
+        host,
+        teamToken ? { name, authorization: teamToken } : { name, team },
+      );
+      teamTokens.set(team, teamToken ?? identity.token);
+      identities.push({ agent, name, team, id: identity.id });
       const log = createWriteStream(join(out, `${name}.log`));
       agentLogs.push(log);
       const child = spawn(
@@ -283,16 +317,20 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
     clearInterval(ticker);
     record();
 
-    const results: AgentResult[] = identities.map(({ agent, name, id }) => {
-      const final = latest?.agents.find((a) => a.id === id);
-      return {
-        agent,
-        name,
-        id,
-        finalScore: final?.score ?? 0,
-        finalPenalty: final?.penalty ?? 0,
-      };
-    });
+    const results: AgentResult[] = identities.map(
+      ({ agent, name, team, id }) => {
+        const final = latest?.agents.find((a) => a.id === id);
+        return {
+          agent,
+          name,
+          id,
+          team,
+          teamId: final?.teamId,
+          finalScore: final?.score ?? 0,
+          finalPenalty: final?.penalty ?? 0,
+        };
+      },
+    );
     const meta: RunMeta = {
       map,
       seed,
@@ -300,7 +338,6 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       port,
       out,
       server,
-      team,
       agents: results,
       serverRevision: about.commitHash,
       serverVersion: about.packageVersion,

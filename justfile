@@ -14,10 +14,20 @@ deploy agent="dumb" identity=agent:
 token agent="dumb" *flags="":
     @npx tsx --env-file-if-exists=.env src/token.ts {{agent}} {{flags}}
 
-# Race agents, one fresh seeded server per run, over the suite or the given maps:
+# Agents in teams, one fresh seeded server per run, over the suite or the given maps.
+# A bare agent is a team of one; --team a,b shares one:
 #   just bench naive deliberate --time 120 --runs 3 --seed 42 --map maps/bench.json
-bench *args="dumb naive":
+#   just bench --team pddl,pddl --team naive --map 26c1_3
+bench *args:
     @npx tsx --env-file-if-exists=.env src/bench.ts {{args}}
+
+# One agent alone on every map, seeds 42..44, 150 s
+solo agent:
+    @uv run bench/solo.py {{agent}}
+
+# Teams on every map, spawn order shuffled per attempt: just field --team pddl,pddl --team naive
+field *args:
+    @uv run bench/field.py {{args}}
 
 # Stop a deployed agent
 stop identity="dumb":
