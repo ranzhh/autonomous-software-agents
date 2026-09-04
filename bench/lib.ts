@@ -5,9 +5,9 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
 
 /**
- * One benchmark run: a fresh server on `map` with `seed`, one agent, `duration`
- * seconds counted from the moment the agent appears on the grid. An admin
- * observer (no position, sees everything) snapshots the grid once a second.
+ * One run: a fresh server on `map` with `seed`, one agent, `duration` seconds
+ * from the agent's spawn. An admin observer, which has no position and sees the
+ * whole grid, snapshots it once a second.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */

@@ -4,9 +4,8 @@ import { runBenchmark } from "./lib.js";
 import { SUITE } from "./suite.js";
 
 /**
- * Within-seed pilot: the same agent on the same map and seed, repeated, next to
- * single runs on other seeds. The within-seed spread measures what the real-time
- * layer adds; the between-seed spread is the environment's own variance.
+ * Repeats one seed several times and runs every other seed once, so the spread
+ * within a seed can be compared with the spread between seeds.
  */
 const { values } = parseArgs({
   options: {

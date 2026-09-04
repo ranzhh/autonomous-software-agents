@@ -2,11 +2,10 @@
 # requires-python = ">=3.11"
 # dependencies = ["pandas>=2.2", "matplotlib>=3.9"]
 # ///
-"""Within-seed pilot: how much of the run-to-run spread is the real-time layer?
+"""Summarise a pilot campaign: within-seed and between-seed spread of the final
+score, and score-over-time curves with the repeated seed's runs overlaid.
 
-Reads bench/results/<campaign>/*/{meta.json,observer.ndjson}, prints the
-within-seed and between-seed spread of the final score, and draws score-over-time
-curves with repeated-seed runs overlaid.
+Reads bench/results/<campaign>/*/{meta.json,observer.ndjson}.
 """
 
 import json
@@ -81,8 +80,7 @@ print(summary.round(1).to_string(index=False))
 summary.to_csv(figures / "pilot_summary.csv", index=False)
 runs.to_csv(figures / "pilot_runs.csv", index=False)
 
-# Figure: score over time, one panel per map. The repeated seed's runs share a
-# family of blues; every other seed gets its own clearly different colour.
+# One panel per map. The repeated seed's runs are shades of blue; other seeds get their own colour.
 maps = sorted(series["map"].unique())
 blues = plt.cm.Blues
 others = ["#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
