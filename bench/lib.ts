@@ -14,8 +14,9 @@ import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
  * One run: a fresh server on `map` with `seed`, the listed agents racing on it,
  * `duration` seconds from the moment the last of them has spawned. An admin
  * observer, which has no position and sees the whole grid, snapshots it once a
- * second. With missions, an admin "director" on the agents' team tells each of
- * them the mission text over chat at the given second.
+ * second. With missions, an admin "director" on the agents' team says the
+ * mission text, a plain string, to each of them at the given second, and
+ * records whatever they say back.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */
@@ -316,20 +317,32 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
     const t0 = Date.now();
     const spawnedAt = new Date(t0).toISOString();
 
+    director?.onMsg((fromId, fromName, payload) => {
+      missionLog?.write(
+        `${JSON.stringify({
+          t: (Date.now() - t0) / 1000,
+          wall: Date.now(),
+          heard: payload,
+          from: { id: fromId, name: fromName },
+        })}\n`,
+      );
+    });
+
     for (const mission of missions) {
       const socket = director;
       if (socket === undefined) break;
       timers.push(
         setTimeout(async () => {
-          const payload = { kind: "mission", text: mission.text };
+          // A bare string: agents read chat text as text and keep objects
+          // for their own protocols.
           const acks = await Promise.all(
-            identities.map(({ id }) => socket.emitSay(id, payload)),
+            identities.map(({ id }) => socket.emitSay(id, mission.text)),
           );
           missionLog?.write(
             `${JSON.stringify({
               t: (Date.now() - t0) / 1000,
               wall: Date.now(),
-              text: mission.text,
+              said: mission.text,
               to: identities.map(({ name }) => name),
               acks,
             })}\n`,

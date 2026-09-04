@@ -39,8 +39,9 @@ uv run bench/collaboration.py --agents pddl,pddl --missions bench/missions/examp
 ```
 
 Missions are a JSON list of `{ t, text }`; at second `t` the director says
-`{ kind: "mission", text }` to every agent. The run records each one in
-`missions.ndjson` and every agent's log records it as `heard`.
+the text, a bare string, to every agent. The run records each one in
+`missions.ndjson` as `said`, along with anything an agent says back to the
+director as `heard`; every agent's log records what it received as `heard`.
 
 A shared team needs the server patched as well: the token route never
 inherited a teammate's `teamId` (an operator-precedence slip), so
