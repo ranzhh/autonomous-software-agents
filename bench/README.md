@@ -23,6 +23,17 @@ uv run bench/analysis/pilot.py bench/results/pilot
 
 Several agents in one run race on the same server under separate identities.
 
+The two campaigns are `solo.py`, one agent alone on every map, and
+`competition.py`, every agent on one map with the spawn order shuffled per
+attempt. Both use seeds 42, 43, 44 and 150 s, and list their maps in
+`campaign.py`.
+
+```sh
+uv run bench/solo.py deliberate                  # bench/results/solo/deliberate/
+uv run bench/competition.py                      # every map that can feed a field
+uv run bench/competition.py 26c1_3 --attempts 4  # bench/results/competition/26c1_3/attempt-<k>/
+```
+
 Each run directory holds `meta.json` (map, seed, agent id, server revision,
 final score and penalty, the server config), `observer.ndjson` (one snapshot
 per second: all agents with position, score, penalty; all parcels with
