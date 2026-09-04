@@ -195,6 +195,27 @@ describe("scouting", () => {
     });
   });
 
+  test("delivers its cargo before scouting a long shot", () => {
+    const { beliefs, board } = setup(arms, { x: 3, y: 0 }, [
+      { x: 3, reward: 30, carriedBy: "me" },
+    ]);
+    beliefs.seen(
+      {
+        positions: [{ x: 3, y: 0 }],
+        agents: [],
+        parcels: [{ id: "p0", x: 3, y: 0, reward: 30, carriedBy: "me" }],
+        crates: [],
+      },
+      0,
+    );
+    // The held scout may find a parcel at x7, but the cargo is worth more
+    // than the expected find; home must clear the margin.
+    const held = { kind: "scout", x: 7, y: 0 } as const;
+    expect(deliberate(beliefs, board, config, held, 100)).toEqual({
+      kind: "home",
+    });
+  });
+
   test("fetches a known parcel over scouting for a likely one", () => {
     const { beliefs, board } = setup(arms, { x: 1, y: 0 }, [
       { x: 2, reward: 30 },
