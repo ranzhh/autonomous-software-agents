@@ -62,8 +62,8 @@ export interface Beliefs {
   changed(tile: IOTile): void;
   /** Apply a pickup ack: mark underfoot parcels carried; on an empty ack forget them. */
   took(taken: Parcel[] | undefined): void;
-  /** Apply a putdown ack: forget everything carried. */
-  gave(): void;
+  /** Apply a putdown ack: forget what was put down, everything carried by default. */
+  gave(ids?: string[]): void;
 }
 
 export function decayedReward(
@@ -192,9 +192,10 @@ export function believe(world: World): Beliefs {
       grid.set(key(tile.x, tile.y), tile);
     },
     took,
-    gave: () => {
+    gave: (ids) => {
       for (const [id, p] of parcels)
-        if (p.carriedBy === self.id) parcels.delete(id);
+        if (p.carriedBy === self.id && (ids === undefined || ids.includes(id)))
+          parcels.delete(id);
     },
   };
 }
