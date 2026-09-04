@@ -103,11 +103,16 @@ await run(async (game, world) => {
           stale = true;
           log.info({ intention }, "no plan");
           continue;
-        } else {
+        } else if (intention.kind === "explore") {
           const step =
             board.route(...board.spawners).step(at) ?? drift(board, at);
           queue = step ? [{ do: step, push: false }] : [];
           fromSolver = false;
+        } else {
+          // The goal already holds or its target is gone: wait for fresh
+          // beliefs, as pursue() does. Drifting off a spawner walks back to it.
+          await pace();
+          continue;
         }
       } catch (error) {
         log.error({ err: error }, "planning failed");
