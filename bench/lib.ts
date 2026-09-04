@@ -1,5 +1,10 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
@@ -146,6 +151,11 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
   const { map, seed, agents, duration, port, out } = options;
   if (agents.length === 0) throw new Error("no agents to run");
   const server = resolve(options.server);
+  // The seeding patch adds this module; an unpatched server ignores SEED silently.
+  if (!existsSync(join(server, "src", "utils", "random.js")))
+    throw new Error(
+      `${server} is not patched for seeding: apply bench/deliveroo-seed.patch`,
+    );
   const team = options.team ?? "bench";
   const host = `http://localhost:${port}`;
   mkdirSync(out, { recursive: true });
