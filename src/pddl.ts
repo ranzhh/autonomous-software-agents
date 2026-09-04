@@ -110,44 +110,50 @@ export function problem(
   (:goal ${goal}))`;
 }
 
+/** One planned action; a push expects a crate on the target tile. */
+export interface Step {
+  do: Action;
+  push: boolean;
+}
+
 // The server executes a push as a plain move into the crate.
-const NAMES: Record<string, Action> = {
-  "move-up": "up",
-  "move-down": "down",
-  "move-right": "right",
-  "move-left": "left",
-  "push-up": "up",
-  "push-down": "down",
-  "push-right": "right",
-  "push-left": "left",
-  pickup: "pickup",
-  putdown: "putdown",
+const NAMES: Record<string, Step> = {
+  "move-up": { do: "up", push: false },
+  "move-down": { do: "down", push: false },
+  "move-right": { do: "right", push: false },
+  "move-left": { do: "left", push: false },
+  "push-up": { do: "up", push: true },
+  "push-down": { do: "down", push: true },
+  "push-right": { do: "right", push: true },
+  "push-left": { do: "left", push: true },
+  pickup: { do: "pickup", push: false },
+  putdown: { do: "putdown", push: false },
 };
 
-/** Parse the solver's plan text, one action per `(action ...)` line. */
-export function parse(plan: string): Action[] {
-  const actions: Action[] = [];
+/** Parse the solver's plan text, one step per `(action ...)` line. */
+export function parse(plan: string): Step[] {
+  const steps: Step[] = [];
   for (const line of plan.split("\n")) {
     if (line.trimStart().startsWith(";")) continue;
     const name = line.match(/\(\s*([a-z-]+)/i)?.[1]?.toLowerCase();
     if (name === undefined) continue;
-    const action = NAMES[name];
-    if (action === undefined) throw new Error(`unknown plan action: ${line}`);
+    const step = NAMES[name];
+    if (step === undefined) throw new Error(`unknown plan action: ${line}`);
     // pickup and putdown act on every parcel on the tile, but the domain
     // plans them per parcel: collapse consecutive repeats into one.
     if (
-      action === actions.at(-1) &&
-      (action === "pickup" || action === "putdown")
+      step.do === steps.at(-1)?.do &&
+      (step.do === "pickup" || step.do === "putdown")
     )
       continue;
-    actions.push(action);
+    steps.push({ ...step });
   }
-  return actions;
+  return steps;
 }
 
-export type Planned = Action[] | "no goal" | "no plan";
+export type Planned = Step[] | "no goal" | "no plan";
 
-/** Plan the intention: actions, "no goal" to state, or "no plan" found. */
+/** Plan the intention: steps, "no goal" to state, or "no plan" found. */
 export async function plan(
   intention: Intention,
   beliefs: Beliefs,
@@ -158,7 +164,7 @@ export async function plan(
   if (text === undefined) return "no goal";
   const lines = await solve(DOMAIN, text);
   if (lines === undefined) return "no plan";
-  const actions = parse(lines);
+  const steps = parse(lines);
   // A solved, empty plan means the goal already holds.
-  return actions.length > 0 ? actions : "no goal";
+  return steps.length > 0 ? steps : "no goal";
 }

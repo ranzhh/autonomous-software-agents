@@ -2,13 +2,13 @@ import { run } from "../agent.js";
 import { believe } from "../beliefs.js";
 import { grid } from "../grid.js";
 import { log } from "../log.js";
-import { plan } from "../pddl.js";
-import { type Action, deliberate, drift, type Intention } from "../plans.js";
-import { key, sameTile } from "../position.js";
+import { plan, type Step } from "../pddl.js";
+import { deliberate, drift, type Intention } from "../plans.js";
+import { key, MOVES, sameTile } from "../position.js";
 
 // Runs deliberate() like agents/deliberate.ts, but executes whole plans from
-// the PDDL solver. A plan is dropped when the intention changes or a move is
-// refused.
+// the PDDL solver. A plan is dropped when the intention changes, when a crate
+// is not where the plan assumed, or when a move is refused.
 await run(async (game, world) => {
   const beliefs = believe(world);
   let tiles = world.tiles;
@@ -36,7 +36,8 @@ await run(async (game, world) => {
     );
 
   let intention: Intention = { kind: "explore" };
-  let queue: Action[] = [];
+  let queue: Step[] = [];
+  let fromSolver = false;
   // Intentions the solver found no plan for, under the current crate layout.
   const vetoed = new Set<string>();
   const named = (i: Intention): string =>
@@ -95,6 +96,7 @@ await run(async (game, world) => {
         const planned = await plan(intention, beliefs, board);
         if (Array.isArray(planned)) {
           queue = planned;
+          fromSolver = true;
           log.info({ intention, steps: queue.length }, "planned");
         } else if (planned === "no plan") {
           vetoed.add(named(intention));
@@ -104,7 +106,8 @@ await run(async (game, world) => {
         } else {
           const step =
             board.route(...board.spawners).step(at) ?? drift(board, at);
-          queue = step ? [step] : [];
+          queue = step ? [{ do: step, push: false }] : [];
+          fromSolver = false;
         }
       } catch (error) {
         log.error({ err: error }, "planning failed");
@@ -113,27 +116,42 @@ await run(async (game, world) => {
       }
     }
 
-    const action = queue.shift();
-    if (action === undefined) {
+    const step = queue.shift();
+    if (step === undefined) {
       await pace();
-    } else if (action === "pickup") {
+    } else if (step.do === "pickup") {
       const taken = await game.pickup();
       beliefs.took(taken);
       stale = true;
       log.info({ taken }, "picked up");
-    } else if (action === "putdown") {
+    } else if (step.do === "putdown") {
       const delivered = await game.putdown();
       beliefs.gave();
       stale = true;
       log.info({ delivered }, "delivered");
     } else {
-      const landed = await game.move(action);
+      // The step assumed a crate layout; when beliefs disagree, replan
+      // instead of pushing a crate the plan never chose.
+      if (fromSolver) {
+        const target = {
+          x: at.x + MOVES[step.do].dx,
+          y: at.y + MOVES[step.do].dy,
+        };
+        const crated = beliefs.crates().some((c) => sameTile(c, target));
+        if (crated !== step.push) {
+          queue = [];
+          stale = true;
+          log.info({ step, crated }, "plan diverged");
+          continue;
+        }
+      }
+      const landed = await game.move(step.do);
       // After a refusal the rest of the plan starts from a tile we never
       // reached: drop it, sidestep, replan.
       if (landed === false) {
         stale = true;
         queue = [];
-        const aside = drift(board, at) ?? action;
+        const aside = drift(board, at) ?? step.do;
         if ((await game.move(aside)) === false) await pace();
       }
     }

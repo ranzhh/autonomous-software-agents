@@ -55,12 +55,16 @@ describe("the plan text", () => {
       "(pickup p_p0 t_2_0)",
       "; cost = 3 (unit cost)",
     ].join("\n");
-    expect(parse(plan)).toEqual(["right", "right", "pickup"]);
+    expect(parse(plan)).toEqual([
+      { do: "right", push: false },
+      { do: "right", push: true },
+      { do: "pickup", push: false },
+    ]);
   });
 
   test("collapses a run of putdowns into one", () => {
     expect(parse("(putdown p_a t_0_0)\n(putdown p_b t_0_0)")).toEqual([
-      "putdown",
+      { do: "putdown", push: false },
     ]);
   });
 
@@ -90,7 +94,12 @@ describe.skipIf(!available)("the domain, solved for real", () => {
       grid(tiles),
       0,
     );
-    expect(actions).toEqual(["right", "right", "up", "pickup"]);
+    expect(actions).toEqual([
+      { do: "right", push: true },
+      { do: "right", push: true },
+      { do: "up", push: false },
+      { do: "pickup", push: false },
+    ]);
   });
 });
 
