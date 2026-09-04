@@ -17,7 +17,7 @@ token agent="dumb" *flags="":
 # Agents in teams, one fresh seeded server per run, over the suite or the given maps.
 # A bare agent is a team of one; --team a,b shares one:
 #   just bench naive deliberate --time 120 --runs 3 --seed 42 --map maps/bench.json
-#   just bench --team pddl,pddl --team naive --map 26c1_3
+#   just bench --team pddl,pddl --team naive --map 26c1_3 --missions
 bench *args:
     @npx tsx --env-file-if-exists=.env src/bench.ts {{args}}
 

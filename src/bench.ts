@@ -7,14 +7,17 @@ import {
   type RunMeta,
   runBenchmark,
 } from "../bench/lib.js";
+import { loadMissions, type Mission } from "../bench/missions.js";
 import { SUITE } from "../bench/suite.js";
 
 const USAGE =
-  "usage: bench.ts [agent[@team]]... [--team a,b]... [--time s] [--runs n] [--map name|file.json]... [--seed n] [--server dir] [--parallel n] [--campaign name]";
+  "usage: bench.ts [agent[@team]]... [--team a,b]... [--time s] [--runs n] [--map name|file.json]... [--seed n] [--server dir] [--parallel n] [--campaign name] [--missions [file.json]]";
 // One fresh server per run. Run k of n uses seed + k - 1, on the server and
 // every agent alike. A bare agent is a team of its own; `--team a,b` is a team
 // named team1, team2... in order; `a@red` names the team. Agents spawn in the
-// order given. Without --map the suite is the matrix.
+// order given. Without --map the suite is the matrix. Missions are a JSON
+// list (see bench/missions.ts) that a director acts out during every run;
+// `--missions` alone means the standard set.
 
 const args = process.argv.slice(2);
 const agents: Member[] = [];
@@ -26,6 +29,8 @@ let parallel = 2;
 let server = process.env.DELIVEROO_SERVER;
 let campaign = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
 let teamsGiven = 0;
+let missionsFile: string | undefined;
+const STANDARD_MISSIONS = "bench/missions/standard.json";
 for (let i = 0; i < args.length; i++) {
   const arg = args[i] as string;
   if (arg === "--time") seconds = Number(args[++i]);
@@ -35,6 +40,10 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--server") server = args[++i];
   else if (arg === "--parallel") parallel = Number(args[++i]);
   else if (arg === "--campaign") campaign = args[++i] as string;
+  else if (arg === "--missions")
+    missionsFile = args[i + 1]?.endsWith(".json")
+      ? (args[++i] as string)
+      : STANDARD_MISSIONS;
   else if (arg === "--team") {
     const team = `team${++teamsGiven}`;
     for (const agent of (args[++i] ?? "").split(",").filter(Boolean))
@@ -62,6 +71,9 @@ for (const map of maps)
 if (!server)
   throw new Error("pass --server or set DELIVEROO_SERVER to the backend dir");
 const serverDir = server;
+const missions: Mission[] = missionsFile
+  ? loadMissions(missionsFile, seconds)
+  : [];
 
 const boards = maps.length > 0 ? maps : [...SUITE];
 const labelOf = (map: string) => basename(map).replace(/\.json$/, "");
@@ -129,7 +141,7 @@ const table = (rows: (string | number)[][]): void => {
 };
 
 console.log(
-  `${lineup}, ${runs} run(s) of ${seconds}s on ${boards.map(labelOf).join(", ")}, seeds ${seed}..${seed + runs - 1}, ${parallel} at a time`,
+  `${lineup}, ${runs} run(s) of ${seconds}s on ${boards.map(labelOf).join(", ")}, seeds ${seed}..${seed + runs - 1}, ${parallel} at a time${missions.length > 0 ? `, ${missions.length} mission(s)` : ""}`,
 );
 
 const metas = await parallelMap(jobs, parallel, async (job, index) => {
@@ -141,6 +153,7 @@ const metas = await parallelMap(jobs, parallel, async (job, index) => {
     port: 8100 + index,
     server: serverDir,
     out: outDir(job),
+    missions,
   });
   console.log(`\n${labelOf(job.map)} seed ${job.seed}`);
   const s = series(meta);

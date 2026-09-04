@@ -1,0 +1,29 @@
+[
+  {
+    "t": 30,
+    "text": "A parcel has just appeared at {x},{y}. Deliver it and I pay {reward} on top.",
+    "event": { "kind": "deliver" },
+    "reward": 1000
+  },
+  {
+    "t": 60,
+    "text": "Quick one: what is the capital city of Italy?",
+    "event": { "kind": "answer", "accept": "rome" },
+    "reward": 100,
+    "window": 20
+  },
+  {
+    "t": 90,
+    "text": "And the capital city of Japan?",
+    "event": { "kind": "answer", "accept": "tokyo" },
+    "reward": 100,
+    "window": 20
+  },
+  {
+    "t": 120,
+    "text": "Last: the capital city of France?",
+    "event": { "kind": "answer", "accept": "paris" },
+    "reward": 100,
+    "window": 20
+  }
+]
