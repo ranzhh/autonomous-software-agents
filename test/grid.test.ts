@@ -121,3 +121,13 @@ describe("the board", () => {
     expect(g.spawners).toEqual([{ x: 0, y: 1 }]);
   });
 });
+
+describe("slidables", () => {
+  test("include the crate spawner tiles", () => {
+    const board = grid(tilesOf(["3 5! 5"]));
+    expect(board.slidables).toEqual([
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+    ]);
+  });
+});
