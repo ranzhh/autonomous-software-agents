@@ -36,6 +36,8 @@ export function deliberate(
 ): Intention {
   const me = beliefs.me();
   const at = { x: me.x ?? 0, y: me.y ?? 0 };
+  // The server does not enforce config.GAME.player.capacity, so neither
+  // does deliberation: fetches stay worthwhile at any load.
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
   const carried = beliefs.carrying(now);
 
