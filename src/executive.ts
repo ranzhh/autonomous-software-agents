@@ -278,6 +278,7 @@ export async function executive(
             option.kind === "scout" &&
             conceded(option, option)),
         part === undefined ? watching : undefined,
+        team?.mate()?.id,
       );
       if (JSON.stringify(next) !== JSON.stringify(intention)) {
         intention = next;

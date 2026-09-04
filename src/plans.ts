@@ -1,5 +1,5 @@
 import type { Beliefs } from "./beliefs.js";
-import { prospects } from "./field.js";
+import { odds, prospects } from "./field.js";
 import type { Grid } from "./grid.js";
 import { sameTile } from "./position.js";
 import { randomStream } from "./random.js";
@@ -27,8 +27,10 @@ export const same = (a: Intention, b: Intention): boolean => {
 
 /**
  * Choose what to pursue: the option delivering the most reward, decayed over
- * the steps it takes to get it home. The held intention is kept unless a
- * challenger clears the margin; a vanished target is dropped outright.
+ * the steps it takes to get it home. A loose parcel's own reward is further
+ * scaled by the odds of reaching it before a rival seen nearer. The held
+ * intention is kept unless a challenger clears the margin; a vanished target
+ * is dropped outright.
  */
 export function deliberate(
   beliefs: Beliefs,
@@ -38,6 +40,7 @@ export function deliberate(
   now = Date.now(),
   veto?: (intention: Intention) => boolean,
   mine?: (spawner: Position) => boolean,
+  mate?: string,
 ): Intention {
   const me = beliefs.me();
   const at = { x: me.x ?? 0, y: me.y ?? 0 };
@@ -55,24 +58,25 @@ export function deliberate(
       ? rewards.reduce((sum, r) => sum + Math.max(0, r - steps * perStep), 0)
       : 0;
 
+  const load = carried.map((p) => p.reward);
   const home = grid.route(...grid.deliveries);
   const options: { intention: Intention; utility: number }[] = [];
   if (carried.length > 0)
     options.push({
       intention: { kind: "home" },
-      utility: delivered(
-        carried.map((p) => p.reward),
-        home.distance(at),
-      ),
+      utility: delivered(load, home.distance(at)),
     });
-  for (const p of loose)
+  for (const p of loose) {
+    const there = grid.route(p).distance(at);
+    const steps = there + home.distance(p);
     options.push({
       intention: { kind: "fetch", id: p.id },
-      utility: delivered(
-        [p.reward, ...carried.map((c) => c.reward)],
-        grid.route(p).distance(at) + home.distance(p),
-      ),
+      utility:
+        delivered([p.reward], steps) *
+          odds(beliefs, grid, config, p, there, now, mate) +
+        delivered(load, steps),
     });
+  }
 
   const finds = prospects(beliefs, grid, config, now, mine);
   const reach = config.GAME.player.observation_distance;
