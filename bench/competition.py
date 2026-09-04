@@ -5,7 +5,7 @@
 
     uv run bench/competition.py [map ...] [--agents a,b] [--attempts 3] [--time 150] [--seed 42] [--seeds 3] [--parallel 1]
 
-Without maps, every map in the suite that can feed a field. Agents spawn in
+Without maps, every map in the suite. Agents spawn in
 list order and the first placement draw goes to the first agent, so attempt k
 spawns them in a shuffled order, distinct across attempts and fixed by map and
 k. Results land in
@@ -16,10 +16,10 @@ import argparse
 import random
 from pathlib import Path
 
-from campaign import AGENTS, DURATION, MAPS, SEED, SEEDS, SOLO_ONLY, bench
+from campaign import AGENTS, DURATION, MAPS, SEED, SEEDS, bench
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument("maps", nargs="*", default=[m for m in MAPS if m not in SOLO_ONLY])
+parser.add_argument("maps", nargs="*", default=MAPS)
 parser.add_argument("--agents", default=",".join(AGENTS))
 parser.add_argument("--attempts", type=int, default=3)
 parser.add_argument("--time", type=int, default=DURATION)

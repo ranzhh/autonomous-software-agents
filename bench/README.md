@@ -30,7 +30,7 @@ attempt. Both use seeds 42, 43, 44 and 150 s, and list their maps in
 
 ```sh
 uv run bench/solo.py deliberate                  # bench/results/solo/deliberate/
-uv run bench/competition.py                      # every map that can feed a field
+uv run bench/competition.py                      # every map in the suite
 uv run bench/competition.py 26c1_3 --attempts 4  # bench/results/competition/26c1_3/attempt-<k>/
 ```
 

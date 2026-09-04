@@ -6,20 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# suite.ts's five asset maps, then the local ones.
-MAPS = [
-    "empty_10",
-    "26c1_3",
-    "crates_one_way",
-    "crates_maze",
-    "26c1_4",
-    "maps/bench.json",
-    "maps/scout.json",
-    "maps/corridor.json",
-    "maps/crates.json",
-]
-# One parcel a minute, capped at one: a field of agents there measures nothing.
-SOLO_ONLY = {"maps/crates.json"}
+# suite.ts's five asset maps. The local maps under maps/ are for development.
+MAPS = ["empty_10", "26c1_3", "crates_one_way", "crates_maze", "26c1_4"]
 
 AGENTS = ["dumb", "greedy", "naive", "deliberate", "pddl"]
 
