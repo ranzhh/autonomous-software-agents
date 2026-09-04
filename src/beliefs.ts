@@ -27,12 +27,21 @@ export interface AgentBelief {
   seenAt: number;
 }
 
+/** Last seen position; crates never decay or respawn. */
+export interface CrateBelief {
+  id: string;
+  x: number;
+  y: number;
+  seenAt: number;
+}
+
 export interface Beliefs {
   me(): IOAgent;
   tileAt(x: number, y: number): IOTile | undefined;
   /** Rewards decayed to `now`; parcels decayed to nothing are dropped. */
   parcels(now?: number): ParcelBelief[];
   agents(): AgentBelief[];
+  crates(): CrateBelief[];
   carrying(now?: number): ParcelBelief[];
   /** When the tile was last in view; -Infinity when it never was. */
   observedAt(x: number, y: number): number;
@@ -62,6 +71,7 @@ export function believe(world: World): Beliefs {
   const grid = new Map(world.tiles.map((tile) => [key(tile.x, tile.y), tile]));
   const parcels = new Map<string, ParcelBelief>();
   const agents = new Map<string, AgentBelief>();
+  const crates = new Map<string, CrateBelief>();
   const observed = new Map<string, number>();
 
   function seen(sensing: IOSensing, at = Date.now()): void {
@@ -83,17 +93,22 @@ export function believe(world: World): Beliefs {
         y: a.y ?? 0,
         seenAt: at,
       });
+    for (const c of sensing.crates)
+      crates.set(c.id, { id: c.id, x: c.x, y: c.y, seenAt: at });
 
     // Forget anything remembered on a visible tile that the snapshot does not report.
     const visible = new Set(sensing.positions.map((p) => key(p.x, p.y)));
     const reported = new Set<string>([
       ...sensing.parcels.map((p) => p.id),
       ...sensing.agents.map((a) => a.id),
+      ...sensing.crates.map((c) => c.id),
     ]);
     for (const [id, p] of parcels)
       if (!reported.has(id) && visible.has(key(p.x, p.y))) parcels.delete(id);
     for (const [id, a] of agents)
       if (!reported.has(id) && visible.has(key(a.x, a.y))) agents.delete(id);
+    for (const [id, c] of crates)
+      if (!reported.has(id) && visible.has(key(c.x, c.y))) crates.delete(id);
 
     for (const [id, p] of parcels)
       if (decayedReward(p, config, at) <= 0) parcels.delete(id);
@@ -119,6 +134,7 @@ export function believe(world: World): Beliefs {
     parcels: (now = Date.now()) => current(now),
     observedAt: (x, y) => observed.get(key(x, y)) ?? Number.NEGATIVE_INFINITY,
     agents: () => [...agents.values()],
+    crates: () => [...crates.values()],
     carrying: (now = Date.now()) =>
       current(now).filter((p) => p.carriedBy === self.id),
     seen,

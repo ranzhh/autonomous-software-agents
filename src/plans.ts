@@ -32,9 +32,12 @@ export function deliberate(
   config: IOConfig,
   held: Intention,
   now = Date.now(),
+  veto?: (intention: Intention) => boolean,
 ): Intention {
   const me = beliefs.me();
   const at = { x: me.x ?? 0, y: me.y ?? 0 };
+  // The server does not enforce config.GAME.player.capacity, so neither
+  // does deliberation: fetches stay worthwhile at any load.
   const loose = beliefs.parcels(now).filter((p) => !p.carriedBy);
   const carried = beliefs.carrying(now);
 
@@ -84,11 +87,13 @@ export function deliberate(
     });
   }
 
-  const best = options.reduce((a, b) => (b.utility > a.utility ? b : a), {
+  const considered =
+    veto === undefined ? options : options.filter((o) => !veto(o.intention));
+  const best = considered.reduce((a, b) => (b.utility > a.utility ? b : a), {
     intention: { kind: "explore" } as Intention,
     utility: 0,
   });
-  const kept = options.find((o) => same(o.intention, held));
+  const kept = considered.find((o) => same(o.intention, held));
   if (kept && kept.utility > 0 && best.utility <= kept.utility * MARGIN)
     return held;
   return best.intention;

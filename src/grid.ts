@@ -10,10 +10,13 @@ export interface Route {
 
 export interface Grid {
   walkable(p: Position): boolean;
+  walkables: Position[];
   /** The steps the server allows out of `at`, and where each lands. */
   exits(at: Position): [Direction, Position][];
   deliveries: Position[];
   spawners: Position[];
+  /** Tiles a crate can be pushed onto ('5' and '5!'). */
+  slidables: Position[];
   /** One breadth-first search toward the nearest of the targets. */
   route(...targets: Position[]): Route;
 }
@@ -55,6 +58,8 @@ export function grid(tiles: IOTile[]): Grid {
   const kind = new Uint8Array(size);
   // The direction this tile refuses to be entered from, as an index into STEPS.
   const refuses = new Int8Array(size).fill(NOWHERE);
+  const walkables: Position[] = [];
+  const slidables: Position[] = [];
   const deliveries: Position[] = [];
   const spawners: Position[] = [];
 
@@ -71,6 +76,8 @@ export function grid(tiles: IOTile[]): Grid {
       against === undefined ? NOWHERE : STEPS.findIndex(([d]) => d === against);
     kind[at] = OPEN;
     if (!first) continue;
+    walkables.push({ x, y });
+    if (tile.type.startsWith("5")) slidables.push({ x, y });
     if (tile.type === "2") deliveries.push({ x, y });
     else if (tile.type === "1") spawners.push({ x, y });
   }
@@ -196,6 +203,7 @@ export function grid(tiles: IOTile[]): Grid {
 
   return {
     walkable: (p) => open(index(p)),
+    walkables,
     exits(at) {
       const from = index(at);
       if (!open(from)) return [];
@@ -209,6 +217,7 @@ export function grid(tiles: IOTile[]): Grid {
     },
     deliveries,
     spawners,
+    slidables,
     route,
   };
 }

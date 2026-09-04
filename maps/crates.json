@@ -1,0 +1,31 @@
+{
+  "title": "crates",
+  "description": "The crate sits under the only delivery branch; every delivery pushes it aside. Spawners far out, slow generation, fast decay: going home must win deliberation.",
+  "maxPlayers": 10,
+  "parcels": {
+    "generation_event": "1m",
+    "decaying_event": "1s",
+    "max": 1,
+    "reward_avg": 30,
+    "reward_variance": 2
+  },
+  "player": {
+    "movement_duration": 500,
+    "observation_distance": 8,
+    "capacity": 1
+  },
+  "npcs": [],
+  "map": {
+    "width": 7,
+    "height": 3,
+    "tiles": [
+      [0, "5", 0],
+      [0, "5", 1],
+      [0, "5", 0],
+      [0, "5!", 2],
+      [0, "5", 0],
+      [0, "5", 1],
+      [0, "5", 0]
+    ]
+  }
+}
