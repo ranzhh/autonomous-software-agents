@@ -14,9 +14,8 @@ deploy agent="dumb" identity=agent:
 token agent="dumb" *flags="":
     @npx tsx --env-file-if-exists=.env src/token.ts {{agent}} {{flags}}
 
-# Race agents under fresh identities: just bench dumb naive --time 120 --runs 3
-# Reproducibly, one fresh server per run over a map matrix:
-#   just bench naive deliberate --server ~/deliveroo/backend --map maps/bench.json --map maps/scout.json --seed 42 --runs 5
+# Race agents, one fresh seeded server per run, over the suite or the given maps:
+#   just bench naive deliberate --time 120 --runs 3 --seed 42 --map maps/bench.json
 bench *args="dumb naive":
     @npx tsx --env-file-if-exists=.env src/bench.ts {{args}}
 

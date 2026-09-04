@@ -7,6 +7,8 @@ export const env = cleanEnv(process.env, {
   TOKEN: str({ default: undefined }),
   FAST_DOWNWARD: str({ default: "fast-downward" }),
   ADMIN_TOKEN: str({ default: undefined }),
+  /** Seeds every random draw the agent makes; unset means Math.random. */
+  SEED: str({ default: undefined }),
   LOG_LEVEL: str({
     choices: ["fatal", "error", "warn", "info", "debug", "trace", "silent"],
     default: "info",

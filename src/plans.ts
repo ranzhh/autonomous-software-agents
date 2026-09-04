@@ -1,7 +1,10 @@
 import type { Beliefs } from "./beliefs.js";
 import type { Grid } from "./grid.js";
 import { sameTile } from "./position.js";
+import { randomStream } from "./random.js";
 import { type Direction, type IOConfig, msOf, type Position } from "./sdk.js";
+
+const random = randomStream("plans-drift");
 
 export type Action = Direction | "pickup" | "putdown";
 
@@ -163,5 +166,5 @@ export function naive(
 /** A random step into any open neighbouring tile; undefined when boxed in. */
 export function drift(grid: Grid, at: Position): Direction | undefined {
   const open = grid.exits(at);
-  return open[Math.floor(Math.random() * open.length)]?.[0];
+  return open[Math.floor(random() * open.length)]?.[0];
 }
