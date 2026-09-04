@@ -24,12 +24,14 @@ figures.mkdir(parents=True, exist_ok=True)
 
 
 def load_run(run: Path) -> tuple[dict, pd.DataFrame]:
+    """The first listed agent of a run, which is the only one in a pilot."""
     meta = json.loads((run / "meta.json").read_text())
+    me_meta = meta["agents"][0]
     rows = []
     with open(run / "observer.ndjson") as lines:
         for line in lines:
             snap = json.loads(line)
-            me = next((a for a in snap["agents"] if a["id"] == meta["agentId"]), None)
+            me = next((a for a in snap["agents"] if a["id"] == me_meta["id"]), None)
             loose = [p for p in snap["parcels"] if p["carriedBy"] is None]
             rows.append(
                 {
@@ -48,8 +50,9 @@ runs = []
 series = []
 for run in sorted(p for p in campaign.iterdir() if (p / "meta.json").exists()):
     meta, df = load_run(run)
-    label = dict(map=meta["map"], agent=meta["agent"], seed=meta["seed"], rep=run.name.rsplit("__r", 1)[-1])
-    runs.append({**label, "score": meta["finalScore"], "penalty": meta["finalPenalty"], "duration": meta["duration"]})
+    me_meta = meta["agents"][0]
+    label = dict(map=meta["map"], agent=me_meta["agent"], seed=meta["seed"], rep=run.name.rsplit("__r", 1)[-1])
+    runs.append({**label, "score": me_meta["finalScore"], "penalty": me_meta["finalPenalty"], "duration": meta["duration"]})
     series.append(df.assign(**label))
 
 runs = pd.DataFrame(runs)

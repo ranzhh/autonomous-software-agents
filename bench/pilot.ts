@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { runBenchmark } from "./lib.js";
+import { parallelMap, runBenchmark } from "./lib.js";
 import { SUITE } from "./suite.js";
 
 /**
@@ -50,28 +50,20 @@ const outDir = (job: Job) =>
 const pending = jobs.filter((job) => !existsSync(`${outDir(job)}/meta.json`));
 console.log(`${pending.length} of ${jobs.length} runs to do`);
 
-let nextPort = Number(values.basePort);
-async function worker(): Promise<void> {
-  for (;;) {
-    const job = pending.shift();
-    if (!job) return;
-    const port = nextPort++;
-    const startedAt = Date.now();
-    const meta = await runBenchmark({
-      map: job.map,
-      seed: job.seed,
-      agent: values.agent,
-      duration,
-      port,
-      server,
-      out: outDir(job),
-    });
-    console.log(
-      `${job.map} seed=${job.seed} rep=${job.rep} score=${meta.finalScore} penalty=${meta.finalPenalty} (${Math.round((Date.now() - startedAt) / 1000)}s)`,
-    );
-  }
-}
-
-await Promise.all(
-  Array.from({ length: Number(values.parallel) }, () => worker()),
-);
+await parallelMap(pending, Number(values.parallel), async (job, index) => {
+  const port = Number(values.basePort) + index;
+  const startedAt = Date.now();
+  const meta = await runBenchmark({
+    map: job.map,
+    seed: job.seed,
+    agents: [values.agent],
+    duration,
+    port,
+    server,
+    out: outDir(job),
+  });
+  const me = meta.agents[0];
+  console.log(
+    `${job.map} seed=${job.seed} rep=${job.rep} score=${me?.finalScore} penalty=${me?.finalPenalty} (${Math.round((Date.now() - startedAt) / 1000)}s)`,
+  );
+});

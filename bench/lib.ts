@@ -5,17 +5,18 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
 
 /**
- * One run: a fresh server on `map` with `seed`, one agent, `duration` seconds
- * from the agent's spawn. An admin observer, which has no position and sees the
- * whole grid, snapshots it once a second.
+ * One run: a fresh server on `map` with `seed`, the listed agents racing on it,
+ * `duration` seconds from the moment the last of them has spawned. An admin
+ * observer, which has no position and sees the whole grid, snapshots it once a
+ * second.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */
   map: string;
   seed: string;
-  /** Basename of a script in src/agents/. */
-  agent: string;
-  /** Seconds of play after the agent spawns. */
+  /** Basenames of scripts in src/agents/; a repeated name runs twice. */
+  agents: string[];
+  /** Seconds of play after every agent has spawned. */
   duration: number;
   port: number;
   /** Directory of the server's backend package (holds index.js). */
@@ -26,24 +27,31 @@ export interface RunOptions {
 }
 
 export interface Snapshot {
-  /** Seconds since the agent under test spawned. */
+  /** Seconds since the last agent spawned. */
   t: number;
   wall: number;
   agents: IOAgent[];
   parcels: IOSensing["parcels"];
 }
 
-export interface RunMeta extends RunOptions {
-  agentId: string;
-  agentName: string;
+export interface AgentResult {
+  /** Script basename. */
+  agent: string;
+  /** Identity name: the script basename, suffixed when repeated. */
+  name: string;
+  id: string;
+  finalScore: number;
+  finalPenalty: number;
+}
+
+export interface RunMeta extends Omit<RunOptions, "agents"> {
+  agents: AgentResult[];
   serverRevision: string;
   serverVersion: string;
   node: string;
   startedAt: string;
   spawnedAt: string;
   endedAt: string;
-  finalScore: number;
-  finalPenalty: number;
   snapshots: number;
   config: IOConfig;
 }
@@ -54,6 +62,38 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "admin";
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Identity names for the agent list: greedy, greedy-2, naive. */
+export function identityNames(agents: string[]): string[] {
+  const seen = new Map<string, number>();
+  return agents.map((agent) => {
+    const n = (seen.get(agent) ?? 0) + 1;
+    seen.set(agent, n);
+    return n === 1 ? agent : `${agent}-${n}`;
+  });
+}
+
+/** Runs `work` over `items`, at most `parallel` at a time, in order of start. */
+export async function parallelMap<T, R>(
+  items: T[],
+  parallel: number,
+  work: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = next++;
+      const item = items[index];
+      if (index >= items.length || item === undefined) return;
+      results[index] = await work(item, index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.max(1, parallel) }, () => worker()),
+  );
+  return results;
+}
 
 async function waitForServer(host: string): Promise<IOConfig> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -103,7 +143,8 @@ async function terminate(child: ChildProcess, graceMs = 5_000): Promise<void> {
 }
 
 export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
-  const { map, seed, agent, duration, port, out } = options;
+  const { map, seed, agents, duration, port, out } = options;
+  if (agents.length === 0) throw new Error("no agents to run");
   const server = resolve(options.server);
   const team = options.team ?? "bench";
   const host = `http://localhost:${port}`;
@@ -111,8 +152,8 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
 
   const startedAt = new Date().toISOString();
   const serverLog = createWriteStream(join(out, "server.log"));
-  const agentLog = createWriteStream(join(out, "agent.log"));
   const observerLog = createWriteStream(join(out, "observer.ndjson"));
+  const agentLogs: ReturnType<typeof createWriteStream>[] = [];
 
   const gameEnv = map.endsWith(".json") ? {} : { GAME_NAME: map };
   const gameArgs = map.endsWith(".json") ? ["-g", resolve(map)] : [];
@@ -128,16 +169,16 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
   serverProcess.stdout?.pipe(serverLog);
   serverProcess.stderr?.pipe(serverLog);
 
-  let agentProcess: ChildProcess | undefined;
+  const agentProcesses: ChildProcess[] = [];
   let observer: ReturnType<typeof DjsConnect> | undefined;
 
   const cleanup = async () => {
     observer?.disconnect();
-    if (agentProcess) await terminate(agentProcess);
+    await Promise.all(agentProcesses.map((child) => terminate(child)));
     await terminate(serverProcess);
     serverLog.end();
-    agentLog.end();
     observerLog.end();
+    for (const log of agentLogs) log.end();
   };
 
   const onSignal = () => {
@@ -153,7 +194,7 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       packageVersion: string;
     };
 
-    // The observer connects before the agent so it consumes the same placement draw every run.
+    // The observer connects first so it consumes the same placement draw every run.
     const admin = await mintToken(host, {
       name: "observer",
       password: ADMIN_PASSWORD,
@@ -164,37 +205,52 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       latest = sensing;
     });
 
-    const identity = await mintToken(host, { name: agent, team });
-    agentProcess = spawn(
-      join("node_modules", ".bin", "tsx"),
-      [join("src", "agents", `${agent}.ts`)],
-      {
-        cwd: resolve(import.meta.dirname, ".."),
-        env: {
-          ...process.env,
-          HOST: host,
-          TOKEN: identity.token,
-          NAME: agent,
-          TEAM: team,
-          SEED: seed,
-          LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
+    const names = identityNames(agents);
+    const identities: { agent: string; name: string; id: string }[] = [];
+    for (const [i, agent] of agents.entries()) {
+      const name = names[i] as string;
+      const identity = await mintToken(host, { name, team });
+      identities.push({ agent, name, id: identity.id });
+      const log = createWriteStream(join(out, `${name}.log`));
+      agentLogs.push(log);
+      const child = spawn(
+        join("node_modules", ".bin", "tsx"),
+        [join("src", "agents", `${agent}.ts`)],
+        {
+          cwd: resolve(import.meta.dirname, ".."),
+          env: {
+            ...process.env,
+            HOST: host,
+            TOKEN: identity.token,
+            NAME: name,
+            TEAM: team,
+            SEED: seed,
+            LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
         },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    agentProcess.stdout?.pipe(agentLog);
-    agentProcess.stderr?.pipe(agentLog);
+      );
+      child.stdout?.pipe(log);
+      child.stderr?.pipe(log);
+      agentProcesses.push(child);
+    }
 
-    const seen = () =>
-      latest?.agents.find(
-        (a) => a.id === identity.id && a.x !== undefined && a.y !== undefined,
+    const positioned = (id: string) =>
+      latest?.agents.some(
+        (a) => a.id === id && a.x !== undefined && a.y !== undefined,
       );
     const spawnDeadline = Date.now() + SPAWN_TIMEOUT_MS;
-    while (!seen()) {
+    while (!identities.every(({ id }) => positioned(id))) {
       if (Date.now() > spawnDeadline)
-        throw new Error(`agent ${agent} never spawned on ${map}`);
-      if (agentProcess.exitCode !== null)
-        throw new Error(`agent ${agent} exited with ${agentProcess.exitCode}`);
+        throw new Error(
+          `not every agent spawned on ${map}: ${identities
+            .filter(({ id }) => !positioned(id))
+            .map(({ name }) => name)
+            .join(", ")}`,
+        );
+      for (const [i, child] of agentProcesses.entries())
+        if (child.exitCode !== null)
+          throw new Error(`${names[i]} exited with ${child.exitCode}`);
       await sleep(50);
     }
     const t0 = Date.now();
@@ -217,21 +273,31 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
     clearInterval(ticker);
     record();
 
-    const final = latest?.agents.find((a) => a.id === identity.id);
+    const results: AgentResult[] = identities.map(({ agent, name, id }) => {
+      const final = latest?.agents.find((a) => a.id === id);
+      return {
+        agent,
+        name,
+        id,
+        finalScore: final?.score ?? 0,
+        finalPenalty: final?.penalty ?? 0,
+      };
+    });
     const meta: RunMeta = {
-      ...options,
+      map,
+      seed,
+      duration,
+      port,
+      out,
       server,
       team,
-      agentId: identity.id,
-      agentName: agent,
+      agents: results,
       serverRevision: about.commitHash,
       serverVersion: about.packageVersion,
       node: process.version,
       startedAt,
       spawnedAt,
       endedAt: new Date().toISOString(),
-      finalScore: final?.score ?? 0,
-      finalPenalty: final?.penalty ?? 0,
       snapshots,
       config,
     };
