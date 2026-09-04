@@ -176,6 +176,7 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
           TOKEN: identity.token,
           NAME: agent,
           TEAM: team,
+          SEED: seed,
           LOG_LEVEL: process.env.LOG_LEVEL ?? "info",
         },
         stdio: ["ignore", "pipe", "pipe"],

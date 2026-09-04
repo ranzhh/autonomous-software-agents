@@ -1,4 +1,5 @@
 import { run } from "../agent.js";
+import { randomStream } from "../random.js";
 import {
   DIRECTIONS,
   type Direction,
@@ -37,8 +38,9 @@ await run(async (game, { me, tiles, config }) => {
     return best;
   }
 
+  const random = randomStream("greedy-wander");
   const wander = () =>
-    DIRECTIONS[Math.floor(Math.random() * DIRECTIONS.length)] as Direction;
+    DIRECTIONS[Math.floor(random() * DIRECTIONS.length)] as Direction;
 
   function toward(from: Position, to: Position): Direction {
     if (to.x !== from.x) return to.x > from.x ? "right" : "left";
