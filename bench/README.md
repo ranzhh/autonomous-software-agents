@@ -24,24 +24,33 @@ uv run bench/analysis/pilot.py bench/results/pilot
 
 Several agents in one run race on the same server under separate identities.
 
-The campaigns are `solo.py`, one agent alone on every map; `competition.py`,
-every agent on one map, each on its own team; and `collaboration.py`, the
-agents on one team with an admin "director" telling each of them missions
-over chat. The last two share `multi.py`, which shuffles the spawn order per
-attempt. All use seeds 42, 43, 44 and 150 s, and list their maps in
-`campaign.py`.
+Every agent plays on a team: a bare agent is a team of one, `--team a,b`
+shares one, and `a@red` names it. Members of a team share the server's team,
+so competition is teams of one, collaboration is one team, and a field of
+teams is both at once.
 
 ```sh
-uv run bench/solo.py deliberate                  # bench/results/solo/deliberate/
-uv run bench/competition.py                      # every map in the suite
-uv run bench/competition.py 26c1_3 --attempts 4  # bench/results/competition/26c1_3/attempt-<k>/
-uv run bench/collaboration.py --agents pddl,pddl --missions bench/missions/example.json
+just bench naive deliberate --map 26c1_3 --time 120      # two teams of one
+just bench --team pddl,pddl --map crates_maze --missions bench/missions/example.json
 ```
 
-Missions are a JSON list of `{ t, text }`; at second `t` the director says
-the text, a bare string, to every agent. The run records each one in
+The campaigns are `solo.py`, one agent alone on every map, and `field.py`,
+a lineup on every map with the spawn order shuffled per attempt. Both use
+seeds 42, 43, 44 and 150 s, and list their maps in `campaign.py`. Neither
+assumes a lineup.
+
+```sh
+just solo deliberate                                   # bench/results/solo/deliberate/
+just field greedy naive deliberate pddl                # bench/results/greedy_vs_naive_vs_deliberate_vs_pddl/
+just field --team pddl,pddl --missions bench/missions/example.json
+just field --team pddl,llm --team pddl,pddl --maps 26c1_3 --attempts 4
+```
+
+Missions are a JSON list of `{ t, text }`; at second `t` an admin "director"
+says the text, a bare string, to every agent. The run records each one in
 `missions.ndjson` as `said`, along with anything an agent says back to the
 director as `heard`; every agent's log records what it received as `heard`.
+`meta.json` keeps each agent's team and the server's `teamId`.
 
 A shared team needs the server patched as well: the token route never
 inherited a teammate's `teamId` (an operator-precedence slip), so

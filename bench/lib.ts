@@ -11,19 +11,19 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
 
 /**
- * One run: a fresh server on `map` with `seed`, the listed agents racing on it,
- * `duration` seconds from the moment the last of them has spawned. An admin
- * observer, which has no position and sees the whole grid, snapshots it once a
- * second. With missions, an admin "director" on the agents' team says the
- * mission text, a plain string, to each of them at the given second, and
- * records whatever they say back.
+ * One run: a fresh server on `map` with `seed`, the listed agents on it in
+ * their teams, `duration` seconds from the moment the last of them has spawned.
+ * An admin observer, which has no position and sees the whole grid, snapshots
+ * it once a second. With missions, an admin "director" says the mission text,
+ * a plain string, to every agent at the given second, and records whatever
+ * they say back.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */
   map: string;
   seed: string;
-  /** Basenames of scripts in src/agents/; a repeated name runs twice. */
-  agents: string[];
+  /** In spawn order; a repeated script runs twice. */
+  agents: Member[];
   /** Seconds of play after every agent has spawned. */
   duration: number;
   port: number;
@@ -31,10 +31,14 @@ export interface RunOptions {
   server: string;
   /** Output directory for this run; created if missing. */
   out: string;
-  team?: string;
-  /** Own team per agent (the default), or one team shared by all. */
-  teams?: "separate" | "shared";
   missions?: Mission[];
+}
+
+export interface Member {
+  /** Script basename in src/agents/. */
+  agent: string;
+  /** Members sharing a team name share the server's team. */
+  team: string;
 }
 
 export interface Mission {
@@ -57,6 +61,7 @@ export interface AgentResult {
   /** Identity name: the script basename, suffixed when repeated. */
   name: string;
   id: string;
+  team: string;
   teamId: string | undefined;
   finalScore: number;
   finalPenalty: number;
@@ -169,10 +174,11 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
     throw new Error(
       `${server} is not patched for seeding: apply bench/deliveroo-seed.patch`,
     );
-  const team = options.team ?? "bench";
-  const teams = options.teams ?? "separate";
+  const teamSizes = new Map<string, number>();
+  for (const { team } of agents)
+    teamSizes.set(team, (teamSizes.get(team) ?? 0) + 1);
   if (
-    teams === "shared" &&
+    [...teamSizes.values()].some((size) => size > 1) &&
     !readFileSync(
       join(server, "src", "middlewares", "token.js"),
       "utf8",
@@ -249,19 +255,25 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       latest = sensing;
     });
 
-    const names = identityNames(agents);
-    const identities: { agent: string; name: string; id: string }[] = [];
+    const names = identityNames(agents.map((m) => m.agent));
+    const identities: {
+      agent: string;
+      name: string;
+      team: string;
+      id: string;
+    }[] = [];
     // A mint that carries a teammate's token inherits its teamId; otherwise
     // the server mints a new team per token, whatever the team label says.
-    let teamToken: string | undefined;
-    for (const [i, agent] of agents.entries()) {
+    const teamTokens = new Map<string, string>();
+    for (const [i, { agent, team }] of agents.entries()) {
       const name = names[i] as string;
+      const teamToken = teamTokens.get(team);
       const identity = await mintToken(
         host,
         teamToken ? { name, authorization: teamToken } : { name, team },
       );
-      if (teams === "shared") teamToken ??= identity.token;
-      identities.push({ agent, name, id: identity.id });
+      teamTokens.set(team, teamToken ?? identity.token);
+      identities.push({ agent, name, team, id: identity.id });
       const log = createWriteStream(join(out, `${name}.log`));
       agentLogs.push(log);
       const child = spawn(
@@ -309,7 +321,6 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       const admin = await mintToken(host, {
         name: "director",
         password: ADMIN_PASSWORD,
-        ...(teamToken ? { authorization: teamToken } : {}),
       });
       director = DjsConnect(host, admin.token, "director");
     }
@@ -368,17 +379,20 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
     clearInterval(ticker);
     record();
 
-    const results: AgentResult[] = identities.map(({ agent, name, id }) => {
-      const final = latest?.agents.find((a) => a.id === id);
-      return {
-        agent,
-        name,
-        id,
-        teamId: final?.teamId,
-        finalScore: final?.score ?? 0,
-        finalPenalty: final?.penalty ?? 0,
-      };
-    });
+    const results: AgentResult[] = identities.map(
+      ({ agent, name, team, id }) => {
+        const final = latest?.agents.find((a) => a.id === id);
+        return {
+          agent,
+          name,
+          id,
+          team,
+          teamId: final?.teamId,
+          finalScore: final?.score ?? 0,
+          finalPenalty: final?.penalty ?? 0,
+        };
+      },
+    );
     const meta: RunMeta = {
       map,
       seed,
@@ -386,8 +400,6 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       port,
       out,
       server,
-      team,
-      teams,
       missions,
       agents: results,
       serverRevision: about.commitHash,

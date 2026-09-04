@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import {
+  identityNames,
+  type Member,
   type Mission,
   parallelMap,
   type RunMeta,
@@ -8,15 +10,16 @@ import {
 } from "../bench/lib.js";
 import { SUITE } from "../bench/suite.js";
 
-// usage: bench.ts <agent>... [--time s] [--runs n] [--map name|file.json]...
-//                 [--seed n] [--server dir] [--parallel n] [--campaign name]
-//                 [--teams separate|shared] [--missions file.json]
+const USAGE =
+  "usage: bench.ts [agent[@team]]... [--team a,b]... [--time s] [--runs n] [--map name|file.json]... [--seed n] [--server dir] [--parallel n] [--campaign name] [--missions file.json]";
 // One fresh server per run. Run k of n uses seed + k - 1, on the server and
-// every agent alike. Without --map the suite is the matrix. Missions are a
-// JSON list of { t, text }, told to every agent t seconds into the run.
+// every agent alike. A bare agent is a team of its own; `--team a,b` is a team
+// named team1, team2... in order; `a@red` names the team. Agents spawn in the
+// order given. Without --map the suite is the matrix. Missions are a JSON
+// list of { t, text }, said to every agent t seconds into the run.
 
 const args = process.argv.slice(2);
-const agents: string[] = [];
+const agents: Member[] = [];
 const maps: string[] = [];
 let seconds = 120;
 let runs = 1;
@@ -24,8 +27,8 @@ let seed = 1;
 let parallel = 2;
 let server = process.env.DELIVEROO_SERVER;
 let campaign = new Date().toISOString().replaceAll(":", "-").slice(0, 19);
-let teams: "separate" | "shared" = "separate";
 let missionsFile: string | undefined;
+let teamsGiven = 0;
 for (let i = 0; i < args.length; i++) {
   const arg = args[i] as string;
   if (arg === "--time") seconds = Number(args[++i]);
@@ -35,20 +38,26 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--server") server = args[++i];
   else if (arg === "--parallel") parallel = Number(args[++i]);
   else if (arg === "--campaign") campaign = args[++i] as string;
-  else if (arg === "--teams") {
-    const value = args[++i];
-    if (value !== "separate" && value !== "shared")
-      throw new Error(`--teams takes separate or shared, not ${value}`);
-    teams = value;
-  } else if (arg === "--missions") missionsFile = args[++i];
-  else agents.push(arg);
+  else if (arg === "--missions") missionsFile = args[++i];
+  else if (arg === "--team") {
+    const team = `team${++teamsGiven}`;
+    for (const agent of (args[++i] ?? "").split(",").filter(Boolean))
+      agents.push({ agent, team });
+  } else if (arg.startsWith("-"))
+    throw new Error(`unknown flag ${arg}\n${USAGE}`);
+  else {
+    const [agent, team] = arg.split("@") as [string, string?];
+    // Own team, named after the identity, so two bare agents of one script stay apart.
+    agents.push({ agent, team: team ?? "" });
+  }
 }
 
-if (agents.length === 0)
-  throw new Error(
-    "usage: bench.ts <agent>... [--time s] [--runs n] [--map name|file.json]... [--seed n] [--server dir] [--parallel n] [--campaign name] [--teams separate|shared] [--missions file.json]",
-  );
-for (const agent of agents)
+if (agents.length === 0) throw new Error(USAGE);
+for (const [i, name] of identityNames(agents.map((m) => m.agent)).entries()) {
+  const member = agents[i] as Member;
+  if (member.team === "") member.team = name;
+}
+for (const { agent } of agents)
   if (!existsSync(`src/agents/${agent}.ts`))
     throw new Error(`no such agent: src/agents/${agent}.ts`);
 for (const map of maps)
@@ -82,8 +91,18 @@ interface Job {
 const jobs: Job[] = boards.flatMap((map) =>
   Array.from({ length: runs }, (_, k) => ({ map, seed: String(seed + k) })),
 );
+const order = agents.map((m) => m.agent).join("+");
 const outDir = (job: Job) =>
-  `bench/results/${campaign}/${labelOf(job.map)}__${agents.join("+")}__s${job.seed}`;
+  `bench/results/${campaign}/${labelOf(job.map)}__${order}__s${job.seed}`;
+/** Teams in first-appearance order, members joined by +, teams by vs. */
+const lineup = [...new Set(agents.map((m) => m.team))]
+  .map((team) =>
+    agents
+      .filter((m) => m.team === team)
+      .map((m) => m.agent)
+      .join("+"),
+  )
+  .join(" vs ");
 
 const marks = [...Array(7)].map((_, i) => Math.round((seconds * i) / 6));
 
@@ -128,7 +147,7 @@ const table = (rows: (string | number)[][]): void => {
 };
 
 console.log(
-  `${agents.join(teams === "shared" ? " & " : " vs ")}, ${runs} run(s) of ${seconds}s on ${boards.map(labelOf).join(", ")}, seeds ${seed}..${seed + runs - 1}, ${parallel} at a time${missions.length > 0 ? `, ${missions.length} mission(s)` : ""}`,
+  `${lineup}, ${runs} run(s) of ${seconds}s on ${boards.map(labelOf).join(", ")}, seeds ${seed}..${seed + runs - 1}, ${parallel} at a time${missions.length > 0 ? `, ${missions.length} mission(s)` : ""}`,
 );
 
 const metas = await parallelMap(jobs, parallel, async (job, index) => {
@@ -140,7 +159,6 @@ const metas = await parallelMap(jobs, parallel, async (job, index) => {
     port: 8100 + index,
     server: serverDir,
     out: outDir(job),
-    teams,
     missions,
   });
   console.log(`\n${labelOf(job.map)} seed ${job.seed}`);
