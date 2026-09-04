@@ -76,14 +76,11 @@ export function deliberate(
     const holds = Math.min(1, cap, stale / (tick * grid.spawners.length));
     if (holds <= 0) continue;
     const steps = grid.route(s).distance(at) + home.distance(s);
+    // The carried delivery is not credited here: a spawner re-arms by going
+    // stale, so a scout scored as home-plus-bonus outbids home forever.
     options.push({
       intention: { kind: "scout", x: s.x, y: s.y },
-      utility:
-        holds * delivered([config.GAME.parcels.reward_avg], steps) +
-        delivered(
-          carried.map((c) => c.reward),
-          steps,
-        ),
+      utility: holds * delivered([config.GAME.parcels.reward_avg], steps),
     });
   }
 
