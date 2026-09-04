@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument("agents", nargs="*", help="bare agents, each a team of its own")
 parser.add_argument("--team", action="append", default=[], help="comma-separated agents sharing a team")
 parser.add_argument("--maps", default=",".join(MAPS), help="comma-separated names or files")
-parser.add_argument("--missions", help="JSON list of { t, text }, said to every agent t seconds in")
+parser.add_argument("--missions", help="JSON list of { t, text }, shouted to everyone t seconds in")
 parser.add_argument("--attempts", type=int, default=3)
 parser.add_argument("--campaign", help="results directory under bench/results; defaults to the lineup")
 parser.add_argument("--time", type=int, default=DURATION)

@@ -47,9 +47,10 @@ just field --team pddl,llm --team pddl,pddl --maps 26c1_3 --attempts 4
 ```
 
 Missions are a JSON list of `{ t, text }`; at second `t` an admin "director"
-says the text, a bare string, to every agent. The run records each one in
-`missions.ndjson` as `said`, along with anything an agent says back to the
-director as `heard`; every agent's log records what it received as `heard`.
+shouts the text, a bare string, so every connected client hears it. The run
+records each one in `missions.ndjson` as `shouted`, along with anything an
+agent says back to the director as `heard`; every agent's log records what
+it received as `heard`.
 `meta.json` keeps each agent's team and the server's `teamId`.
 
 A shared team needs the server patched as well: the token route never

@@ -14,9 +14,9 @@ import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
  * One run: a fresh server on `map` with `seed`, the listed agents on it in
  * their teams, `duration` seconds from the moment the last of them has spawned.
  * An admin observer, which has no position and sees the whole grid, snapshots
- * it once a second. With missions, an admin "director" says the mission text,
- * a plain string, to every agent at the given second, and records whatever
- * they say back.
+ * it once a second. With missions, an admin "director" shouts the mission
+ * text, a plain string, at the given second, and records whatever agents say
+ * back to it.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */
@@ -346,16 +346,13 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
         setTimeout(async () => {
           // A bare string: agents read chat text as text and keep objects
           // for their own protocols.
-          const acks = await Promise.all(
-            identities.map(({ id }) => socket.emitSay(id, mission.text)),
-          );
+          const ack = await socket.emitShout(mission.text);
           missionLog?.write(
             `${JSON.stringify({
               t: (Date.now() - t0) / 1000,
               wall: Date.now(),
-              said: mission.text,
-              to: identities.map(({ name }) => name),
-              acks,
+              shouted: mission.text,
+              ack,
             })}\n`,
           );
         }, mission.t * 1_000),

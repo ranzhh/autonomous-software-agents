@@ -16,7 +16,7 @@ const USAGE =
 // every agent alike. A bare agent is a team of its own; `--team a,b` is a team
 // named team1, team2... in order; `a@red` names the team. Agents spawn in the
 // order given. Without --map the suite is the matrix. Missions are a JSON
-// list of { t, text }, said to every agent t seconds into the run.
+// list of { t, text }, shouted to everyone t seconds into the run.
 
 const args = process.argv.slice(2);
 const agents: Member[] = [];
