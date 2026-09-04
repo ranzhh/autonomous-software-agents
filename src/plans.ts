@@ -1,4 +1,5 @@
 import type { Beliefs } from "./beliefs.js";
+import { prospects } from "./field.js";
 import type { Grid } from "./grid.js";
 import { sameTile } from "./position.js";
 import { randomStream } from "./random.js";
@@ -36,6 +37,7 @@ export function deliberate(
   held: Intention,
   now = Date.now(),
   veto?: (intention: Intention) => boolean,
+  mine?: (spawner: Position) => boolean,
 ): Intention {
   const me = beliefs.me();
   const at = { x: me.x ?? 0, y: me.y ?? 0 };
@@ -72,22 +74,20 @@ export function deliberate(
       ),
     });
 
-  // Parcels spawn one per generation tick on a random empty spawner tile, so
-  // a spawner unseen for n ticks holds a parcel with chance ~n/spawners.
-  // Generation stops at the board cap: the chance never exceeds max/spawners.
-  const tick = msOf(config.GAME.parcels.generation_event, config.CLOCK);
-  const cap = config.GAME.parcels.max / grid.spawners.length;
-  for (const s of grid.spawners) {
-    const stale = now - beliefs.observedAt(s.x, s.y);
-    const holds = Math.min(1, cap, stale / (tick * grid.spawners.length));
-    if (holds <= 0) continue;
-    const steps = grid.route(s).distance(at) + home.distance(s);
-    // The carried delivery is not credited here: a spawner re-arms by going
-    // stale, so a scout scored as home-plus-bonus outbids home forever.
-    options.push({
-      intention: { kind: "scout", x: s.x, y: s.y },
-      utility: holds * delivered([config.GAME.parcels.reward_avg], steps),
-    });
+  const finds = prospects(beliefs, grid, config, now, mine);
+  const reach = config.GAME.player.observation_distance;
+  for (const t of grid.spawners) {
+    const there = grid.route(t);
+    const steps = there.distance(at);
+    if (!Number.isFinite(steps)) continue;
+    let utility = 0;
+    for (const f of finds)
+      if (Math.abs(f.x - t.x) + Math.abs(f.y - t.y) <= reach)
+        utility +=
+          f.chance *
+          delivered([f.worth], steps + there.distance(f) + home.distance(f));
+    if (utility > 0)
+      options.push({ intention: { kind: "scout", x: t.x, y: t.y }, utility });
   }
 
   const considered =

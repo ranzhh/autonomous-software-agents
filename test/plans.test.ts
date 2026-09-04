@@ -15,7 +15,7 @@ const config = {
       max: 25,
     },
     // One reward point decays per step: utilities come out in round numbers.
-    player: { movement_duration: 1_000 },
+    player: { movement_duration: 1_000, observation_distance: 2 },
   },
 } as unknown as IOConfig;
 
@@ -229,7 +229,9 @@ describe("scouting", () => {
 
 describe("the veto", () => {
   test("skips vetoed options", () => {
-    const { beliefs, board } = setup(["2313"], { x: 1, y: 0 }, [{ x: 3 }]);
+    const { beliefs, board } = setup(["2313"], { x: 1, y: 0 }, [
+      { x: 3, reward: 10 },
+    ]);
     const held = { kind: "explore" } as const;
     expect(deliberate(beliefs, board, config, held, 0).kind).toBe("scout");
     const kind = deliberate(
