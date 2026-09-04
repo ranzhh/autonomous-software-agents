@@ -9,6 +9,7 @@ import {
 import { join, resolve } from "node:path";
 import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk";
 import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
+import { type Mission, runMissions } from "./missions.js";
 
 /**
  * One run: a fresh server on `map` with `seed`, the listed agents on it in
@@ -29,6 +30,8 @@ export interface RunOptions {
   server: string;
   /** Output directory for this run; created if missing. */
   out: string;
+  /** Shouted by an admin "director" and traced in missions.ndjson. */
+  missions?: Mission[];
 }
 
 export interface Member {
@@ -184,6 +187,11 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
   const startedAt = new Date().toISOString();
   const serverLog = createWriteStream(join(out, "server.log"));
   const observerLog = createWriteStream(join(out, "observer.ndjson"));
+  const missions = options.missions ?? [];
+  const missionLog =
+    missions.length > 0
+      ? createWriteStream(join(out, "missions.ndjson"))
+      : undefined;
   const agentLogs: ReturnType<typeof createWriteStream>[] = [];
 
   const gameEnv = map.endsWith(".json") ? {} : { GAME_NAME: map };
@@ -203,12 +211,18 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
   const agentProcesses: ChildProcess[] = [];
   let observer: ReturnType<typeof DjsConnect> | undefined;
 
+  let director: ReturnType<typeof DjsConnect> | undefined;
+  let stopMissions: (() => void) | undefined;
+
   const cleanup = async () => {
+    stopMissions?.();
+    director?.disconnect();
     observer?.disconnect();
     await Promise.all(agentProcesses.map((child) => terminate(child)));
     await terminate(serverProcess);
     serverLog.end();
     observerLog.end();
+    missionLog?.end();
     for (const log of agentLogs) log.end();
   };
 
@@ -297,8 +311,44 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
           throw new Error(`${names[i]} exited with ${child.exitCode}`);
       await sleep(50);
     }
+    // The director connects after the agents so it takes none of their
+    // placement draws; the observer's sensing tells it what happened.
+    if (missions.length > 0) {
+      const admin = await mintToken(host, {
+        name: "director",
+        password: ADMIN_PASSWORD,
+      });
+      director = DjsConnect(host, admin.token, "director");
+    }
+
     const t0 = Date.now();
     const spawnedAt = new Date(t0).toISOString();
+
+    if (director !== undefined) {
+      const socket = director;
+      stopMissions = runMissions({
+        director: {
+          shout: (text) => void socket.emitShout(text),
+          createParcel: (x, y, reward) =>
+            socket.emit("parcel", "create", { x, y, reward }),
+          reward: (agentId, points) =>
+            socket.emit("reward", { agentId, points }),
+          onMsg: (listener) =>
+            socket.onMsg((fromId, _fromName, payload) =>
+              listener(fromId, payload),
+            ),
+        },
+        sensing: {
+          latest: () => latest,
+          on: (listener) => observer?.onSensing(listener),
+        },
+        agents: identities,
+        tiles: config.GAME.map.tiles,
+        missions,
+        t0,
+        log: (event) => missionLog?.write(`${JSON.stringify(event)}\n`),
+      });
+    }
 
     const snapshot = (): Snapshot => ({
       t: (Date.now() - t0) / 1000,
@@ -338,6 +388,7 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       port,
       out,
       server,
+      missions,
       agents: results,
       serverRevision: about.commitHash,
       serverVersion: about.packageVersion,

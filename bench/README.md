@@ -47,9 +47,29 @@ just field --team pddl,llm --team pddl,pddl --maps 26c1_3 --attempts 4
 
 `meta.json` keeps each agent's team and the server's `teamId`.
 
-A shared team needs the server patched as well: the token route never
-inherited a teammate's `teamId` (an operator-precedence slip), so
-`deliveroo-team.patch` fixes that. Apply it like the seed patch.
+A mission is a triple: the text shouted at second `t`, the event the director
+then watches for, and the reward it pays to each agent who brings the event
+about. `--missions` turns on the standard set, `--missions file.json` another
+list; the same file serves every map because a mission never names a tile.
+
+- `{ "kind": "deliver" }`: the director drops a parcel on the walkable,
+  non-delivery tile farthest from every agent, fills `{x}`, `{y}` and
+  `{reward}` into the text and shouts it. Delivering that parcel is the event;
+  the parcel's own value (`parcel`, by default enough to outlast the run's
+  decay) is incidental, the reward is the point.
+- `{ "kind": "answer", "accept": "rome" }`: the director shouts the text;
+  a reply to it containing `accept`, case-insensitively, is the event.
+
+A mission stays open for `window` seconds, the rest of the run unless given,
+and pays each agent once, through the admin reward command, confirming the
+payout by the score jump in the next snapshot. `missions/standard.json` is one
+delivery worth 1000 and three capital-city questions worth 100.
+
+Every event lands in the run's `missions.ndjson` with `t` and `wall`:
+`shouted`, `spawned`, `picked`, `delivered`, `answered`, `rewarded`,
+`confirmed`, `closed`. Mission points are the sum of `rewarded` lines per
+agent, separable from delivery score. Agents only ever see chat text: a
+mission is whatever they make of it.
 
 Each run directory holds `meta.json` (map, seed, agent id, server revision,
 final score and penalty, the server config), `observer.ndjson` (one snapshot
