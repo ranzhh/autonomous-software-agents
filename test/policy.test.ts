@@ -1,5 +1,20 @@
 import { describe, expect, test } from "vitest";
-import { NONE, orders, Policy, react } from "../src/policy.js";
+import { grid } from "../src/grid.js";
+import {
+  constrain,
+  drop,
+  exchange,
+  type Goal,
+  mark,
+  NONE,
+  orders,
+  Policy,
+  pending,
+  react,
+  targets,
+  within,
+} from "../src/policy.js";
+import { tilesOf } from "./tiles.js";
 
 const lights: Policy = {
   ...NONE,
@@ -60,5 +75,73 @@ describe("orders", () => {
       Policy.safeParse({ ...policy, goals: [{ kind: "fly" }] }).success,
     ).toBe(false);
     expect(Policy.safeParse("Go to (1,1)").success).toBe(false);
+  });
+});
+
+describe("what the orders mean", () => {
+  const board = grid(tilesOf(["3332", "1333"]));
+
+  test("goals are pending until marked done, and any tile in radius is inside", () => {
+    const goal: Goal = {
+      kind: "visit",
+      tiles: [{ x: 2, y: 1 }],
+      radius: 1,
+      bonus: 500,
+      together: false,
+    };
+    const done = new Set<string>();
+    expect(pending({ ...NONE, goals: [goal] }, done)).toEqual([goal]);
+    done.add(mark(goal));
+    expect(pending({ ...NONE, goals: [goal] }, done)).toEqual([]);
+    expect(within({ x: 3, y: 1 }, goal)).toBe(true);
+    expect(within({ x: 3, y: 0 }, goal)).toBe(false);
+  });
+
+  test("a meeting heads for the middle of the set, a visit for any of it", () => {
+    const meet: Goal = {
+      kind: "visit",
+      tiles: [{ x: 2, y: 1 }],
+      radius: 1,
+      bonus: 500,
+      together: true,
+    };
+    expect(targets(meet, board)).toEqual([{ x: 2, y: 1 }]);
+    expect(targets({ ...meet, together: false }, board)).toHaveLength(4);
+    expect(targets({ ...meet, radius: 0 }, board)).toEqual(meet.tiles);
+  });
+
+  test("the board is walled and its deliveries narrowed as ordered", () => {
+    const shaped = grid(
+      constrain(
+        tilesOf(["3332", "1323"]),
+        { ...NONE, avoid: [{ x: 1, y: 1 }] },
+        [{ x: 2, y: 0 }],
+      ),
+    );
+    expect(shaped.walkable({ x: 1, y: 1 })).toBe(false);
+    expect(shaped.deliveries).toEqual([{ x: 2, y: 0 }]);
+    expect(shaped.walkable({ x: 3, y: 1 })).toBe(true);
+  });
+
+  test("the exchange is beside the delivery tile nearest the spawners", () => {
+    expect(exchange(board)).toEqual({
+      drop: { x: 3, y: 0 },
+      post: { x: 3, y: 1 },
+    });
+    expect(exchange(grid(tilesOf(["333"])))).toBeUndefined();
+  });
+
+  test("a putdown lets go of all, a full lot, or one parcel cheap enough", () => {
+    const load = [
+      { id: "a", reward: 30 },
+      { id: "b", reward: 8 },
+      { id: "c", reward: 12 },
+    ];
+    expect(drop(load, NONE)).toEqual(["a", "b", "c"]);
+    expect(drop(load, { ...NONE, batch: 2 })).toEqual(["a", "b"]);
+    expect(drop(load.slice(0, 1), { ...NONE, batch: 2 })).toBeUndefined();
+    expect(drop(load, { ...NONE, cheap: 10 })).toEqual(["b"]);
+    expect(drop(load.slice(0, 1), { ...NONE, cheap: 10 })).toBeUndefined();
+    expect(drop([], NONE)).toBeUndefined();
   });
 });
