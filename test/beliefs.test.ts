@@ -17,7 +17,7 @@ const configWith = (decay: string): IOConfig =>
   ({
     CLOCK: 50,
     GAME: {
-      parcels: { decaying_event: decay },
+      parcels: { decaying_event: decay, reward_avg: 30, reward_variance: 0 },
       player: { observation_distance: 5 },
     },
   }) as unknown as IOConfig;
@@ -198,6 +198,21 @@ describe("my own actions", () => {
     beliefs.gave();
     expect(beliefs.carrying(0)).toEqual([]);
     expect(beliefs.parcels(0).map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  test("a putdown of named parcels keeps the rest", () => {
+    const beliefs = believe(world());
+    beliefs.seen(
+      sensing({
+        parcels: [
+          { ...underfoot, carriedBy: "me" },
+          { ...underfoot, id: "p2", carriedBy: "me" },
+        ],
+      }),
+      0,
+    );
+    beliefs.gave(["p2"]);
+    expect(beliefs.carrying(0).map((p) => p.id)).toEqual(["p0"]);
   });
 });
 

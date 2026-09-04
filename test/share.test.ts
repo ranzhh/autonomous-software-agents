@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { believe } from "../src/beliefs.js";
+import type { Intention } from "../src/plans.js";
 import type { IOAgent, IOConfig, IOParcel, IOSensing } from "../src/sdk.js";
 import { sharing } from "../src/share.js";
 import type { Mate, Team } from "../src/team.js";
@@ -71,6 +72,8 @@ function link(): { a: Wired; b: Wired } {
   };
 }
 
+const GOING: Intention = { kind: "explore" };
+
 const parcel = {
   id: "p1",
   x: 5,
@@ -84,7 +87,11 @@ describe("sharing a frame", () => {
     const { a, b } = link();
     const theirs = believe(world("b"));
     sharing(b.team, theirs);
-    sharing(a.team, believe(world("a")))(sensing({ parcels: [parcel] }), 1_000);
+    sharing(a.team, believe(world("a"))).post(
+      sensing({ parcels: [parcel] }),
+      GOING,
+      1_000,
+    );
 
     expect(theirs.parcels(1_000)).toMatchObject([{ id: "p1", x: 5, y: 0 }]);
   });
@@ -93,13 +100,14 @@ describe("sharing a frame", () => {
     const { a, b } = link();
     const theirs = believe(world("b"));
     sharing(b.team, theirs);
-    sharing(a.team, believe(world("a")))(
+    sharing(a.team, believe(world("a"))).post(
       sensing({
         agents: [
           { ...me("b"), x: 4, y: 0 },
           { ...me("rival"), x: 7, y: 0 },
         ],
       }),
+      GOING,
       1_000,
     );
 
@@ -121,15 +129,16 @@ describe("sharing a frame", () => {
     sharing(b.team, theirs);
     const mine = believe(world("a"));
     mine.moved({ ...me("a"), x: 7, y: 0 });
-    sharing(a.team, mine)(sensing({}), 1_000);
+    sharing(a.team, mine).post(sensing({}), GOING, 1_000);
 
     expect(theirs.agents()).toMatchObject([{ id: "a", x: 7, y: 0 }]);
   });
 
   test("`positions` is never forwarded", () => {
     const { a } = link();
-    sharing(a.team, believe(world("a")))(
+    sharing(a.team, believe(world("a"))).post(
       sensing({ positions: [{ x: 0, y: 0 }] }),
+      GOING,
       1_000,
     );
 
@@ -154,7 +163,7 @@ describe("when the report was sensed", () => {
     const theirs = believe(world("b"));
     theirs.seen(sensing({ positions: [{ x: 5, y: 0 }], parcels: [parcel] }), 0);
     sharing(b.team, theirs);
-    sharing(a.team, believe(world("a")))(sensing({}), 1_000);
+    sharing(a.team, believe(world("a"))).post(sensing({}), GOING, 1_000);
 
     expect(theirs.parcels(1_000)).toEqual([]);
   });
@@ -167,7 +176,7 @@ describe("when the report was sensed", () => {
       1_000,
     );
     sharing(b.team, theirs);
-    sharing(a.team, believe(world("a")))(sensing({}), 500);
+    sharing(a.team, believe(world("a"))).post(sensing({}), GOING, 500);
 
     expect(theirs.parcels(1_000)).toMatchObject([{ id: "p1" }]);
   });
@@ -177,11 +186,41 @@ describe("when the report was sensed", () => {
     const theirs = believe(world("b"));
     theirs.seen(sensing({ parcels: [parcel] }), 1_000);
     sharing(b.team, theirs);
-    sharing(a.team, believe(world("a")))(
+    sharing(a.team, believe(world("a"))).post(
       sensing({ parcels: [{ ...parcel, reward: 9 }] }),
+      GOING,
       500,
     );
 
     expect(theirs.parcels(1_000)).toMatchObject([{ reward: 40 }]);
+  });
+});
+
+describe("what the teammate is going for", () => {
+  test("arrives with the frame and is the last word said", () => {
+    const { a, b } = link();
+    const share = sharing(b.team, believe(world("b")));
+    const mine = sharing(a.team, believe(world("a")));
+    mine.post(sensing({}), { kind: "fetch", id: "p1" }, 1_000);
+    expect(share.intent()).toEqual({ kind: "fetch", id: "p1" });
+    mine.post(sensing({}), { kind: "scout", x: 3, y: 0 }, 1_100);
+    expect(share.intent()).toEqual({ kind: "scout", x: 3, y: 0 });
+  });
+
+  test("a report with no readable intention changes nothing", () => {
+    const { a, b } = link();
+    const theirs = believe(world("b"));
+    const share = sharing(b.team, theirs);
+    a.team.tell({ at: 1, x: 0, y: 0, parcels: [parcel], agents: [] });
+    a.team.tell({
+      at: 1,
+      x: 0,
+      y: 0,
+      parcels: [],
+      agents: [],
+      intention: { kind: "fly" },
+    });
+    expect(share.intent()).toBeUndefined();
+    expect(theirs.parcels()).toEqual([]);
   });
 });

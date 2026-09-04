@@ -18,7 +18,7 @@ export type Intention =
 /** A challenger must beat the held intention by this factor to prevent dithering. */
 const MARGIN = 1.2;
 
-const same = (a: Intention, b: Intention): boolean => {
+export const same = (a: Intention, b: Intention): boolean => {
   if (a.kind === "fetch" && b.kind === "fetch") return a.id === b.id;
   if (a.kind === "scout" && b.kind === "scout")
     return a.x === b.x && a.y === b.y;
