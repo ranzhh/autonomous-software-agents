@@ -31,18 +31,24 @@ const ROUNDS = 4;
 
 const key = (call: Call): string => `${call.name}${JSON.stringify(call.args)}`;
 
+const ANSWERS = new Set(["calculate", "reply", DONE]);
+
 export function missions(
   chat: Chat,
   orders: Orders,
   view: () => View,
   say: (to: string, text: string) => void,
+  player: (id: string) => boolean = () => false,
 ): (message: Message) => Promise<void> {
   let last = Promise.resolve();
 
   function brief(from: Message["from"], text: string, v: View): string {
     const mate = v.mate ? "teammate in sight" : "teammate out of sight";
+    const who = player(from.id)
+      ? `${from.name}, a player on the map`
+      : from.name;
     return [
-      `Message from ${from.name}: "${text}"`,
+      `Message from ${who}: "${text}"`,
       `Situation: a ${v.width}x${v.height} map, carrying ${v.carrying} parcels worth ${v.worth}, score ${v.score}, ${mate}.`,
       `Standing orders: ${JSON.stringify(orders.policy())}`,
     ].join("\n");
@@ -56,12 +62,16 @@ export function missions(
     const before = orders.policy();
     let policy = before;
     const transcript: Turn[] = [{ role: "user", text: brief(from, text, v) }];
+    // The game master has no position, so anyone ever seen on the map is not it.
+    const tools = player(from.id)
+      ? TOOLS.filter((t) => ANSWERS.has(t.name))
+      : TOOLS;
     orders.issue({ ...before, hold: true });
     const made = new Set<string>();
     for (let round = 0; round < ROUNDS; round++) {
       let reply: Reply;
       try {
-        reply = await chat.complete(SYSTEM, transcript, TOOLS);
+        reply = await chat.complete(SYSTEM, transcript, tools);
       } catch (error) {
         log.warn({ err: `${error}`, text }, "not understood");
         break;
@@ -91,7 +101,9 @@ export function missions(
   return (message) => {
     if (typeof message.payload !== "string") return Promise.resolve();
     const text = message.payload;
-    const reacted = react(orders.policy(), text);
+    const reacted = player(message.from.id)
+      ? undefined
+      : react(orders.policy(), text);
     if (reacted !== undefined) {
       orders.issue(reacted);
       return Promise.resolve();
