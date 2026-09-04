@@ -2,8 +2,8 @@
 
 One run is one fresh server on one map with one seed, one or more agents, and
 a fixed number of seconds counted from the moment the last agent appears on
-the grid. An
-admin observer with no position snapshots every agent and parcel once a second.
+the grid. An admin observer with no position snapshots every agent and parcel
+once a second.
 
 Runs need the server patched for seeding: `deliveroo-seed.patch` gives each of
 the game's random draws (parcel reward, spawn tile, agent placement, NPC moves)
@@ -22,8 +22,7 @@ npx tsx --env-file-if-exists=.env bench/pilot.ts --maps 26c1_3,26c1_1 --repeats 
 uv run bench/analysis/pilot.py bench/results/pilot
 ```
 
-Several agents in one run race on the same server under separate identities.
-
+Several agents in one run share the same server under separate identities.
 Every agent plays on a team: a bare agent is a team of one, `--team a,b`
 shares one, and `a@red` names it. Members of a team share the server's team,
 so competition is teams of one, collaboration is one team, and a field of
