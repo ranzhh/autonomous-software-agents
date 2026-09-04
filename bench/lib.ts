@@ -14,9 +14,7 @@ import type { IOAgent, IOConfig, IOSensing } from "../src/sdk.js";
  * One run: a fresh server on `map` with `seed`, the listed agents on it in
  * their teams, `duration` seconds from the moment the last of them has spawned.
  * An admin observer, which has no position and sees the whole grid, snapshots
- * it once a second. With missions, an admin "director" shouts the mission
- * text, a plain string, at the given second, and records whatever agents say
- * back to it.
+ * it once a second.
  */
 export interface RunOptions {
   /** Game name from the assets package, or a path to a game JSON file. */
@@ -31,7 +29,6 @@ export interface RunOptions {
   server: string;
   /** Output directory for this run; created if missing. */
   out: string;
-  missions?: Mission[];
 }
 
 export interface Member {
@@ -39,12 +36,6 @@ export interface Member {
   agent: string;
   /** Members sharing a team name share the server's team. */
   team: string;
-}
-
-export interface Mission {
-  /** Seconds after the last agent spawned. */
-  t: number;
-  text: string;
 }
 
 export interface Snapshot {
@@ -187,17 +178,12 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
     throw new Error(
       `${server} does not inherit teams from a token: apply bench/deliveroo-team.patch`,
     );
-  const missions = [...(options.missions ?? [])].sort((a, b) => a.t - b.t);
   const host = `http://localhost:${port}`;
   mkdirSync(out, { recursive: true });
 
   const startedAt = new Date().toISOString();
   const serverLog = createWriteStream(join(out, "server.log"));
   const observerLog = createWriteStream(join(out, "observer.ndjson"));
-  const missionLog =
-    missions.length > 0
-      ? createWriteStream(join(out, "missions.ndjson"))
-      : undefined;
   const agentLogs: ReturnType<typeof createWriteStream>[] = [];
 
   const gameEnv = map.endsWith(".json") ? {} : { GAME_NAME: map };
@@ -216,18 +202,13 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
 
   const agentProcesses: ChildProcess[] = [];
   let observer: ReturnType<typeof DjsConnect> | undefined;
-  let director: ReturnType<typeof DjsConnect> | undefined;
-  const timers: ReturnType<typeof setTimeout>[] = [];
 
   const cleanup = async () => {
-    for (const timer of timers) clearTimeout(timer);
-    director?.disconnect();
     observer?.disconnect();
     await Promise.all(agentProcesses.map((child) => terminate(child)));
     await terminate(serverProcess);
     serverLog.end();
     observerLog.end();
-    missionLog?.end();
     for (const log of agentLogs) log.end();
   };
 
@@ -316,48 +297,8 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
           throw new Error(`${names[i]} exited with ${child.exitCode}`);
       await sleep(50);
     }
-    // The director connects after the agents so it draws no placement of theirs.
-    if (missions.length > 0) {
-      const admin = await mintToken(host, {
-        name: "director",
-        password: ADMIN_PASSWORD,
-      });
-      director = DjsConnect(host, admin.token, "director");
-    }
-
     const t0 = Date.now();
     const spawnedAt = new Date(t0).toISOString();
-
-    director?.onMsg((fromId, fromName, payload) => {
-      missionLog?.write(
-        `${JSON.stringify({
-          t: (Date.now() - t0) / 1000,
-          wall: Date.now(),
-          heard: payload,
-          from: { id: fromId, name: fromName },
-        })}\n`,
-      );
-    });
-
-    for (const mission of missions) {
-      const socket = director;
-      if (socket === undefined) break;
-      timers.push(
-        setTimeout(async () => {
-          // A bare string: agents read chat text as text and keep objects
-          // for their own protocols.
-          const ack = await socket.emitShout(mission.text);
-          missionLog?.write(
-            `${JSON.stringify({
-              t: (Date.now() - t0) / 1000,
-              wall: Date.now(),
-              shouted: mission.text,
-              ack,
-            })}\n`,
-          );
-        }, mission.t * 1_000),
-      );
-    }
 
     const snapshot = (): Snapshot => ({
       t: (Date.now() - t0) / 1000,
@@ -397,7 +338,6 @@ export async function runBenchmark(options: RunOptions): Promise<RunMeta> {
       port,
       out,
       server,
-      missions,
       agents: results,
       serverRevision: about.commitHash,
       serverVersion: about.packageVersion,

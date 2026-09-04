@@ -30,7 +30,7 @@ teams is both at once.
 
 ```sh
 just bench naive deliberate --map 26c1_3 --time 120      # two teams of one
-just bench --team pddl,pddl --map crates_maze --missions bench/missions/example.json
+just bench --team pddl,pddl --map crates_maze             # one team of two
 ```
 
 The campaigns are `solo.py`, one agent alone on every map, and `field.py`,
@@ -41,15 +41,10 @@ assumes a lineup.
 ```sh
 just solo deliberate                                   # bench/results/solo/deliberate/
 just field greedy naive deliberate pddl                # bench/results/greedy_vs_naive_vs_deliberate_vs_pddl/
-just field --team pddl,pddl --missions bench/missions/example.json
+just field --team pddl,pddl
 just field --team pddl,llm --team pddl,pddl --maps 26c1_3 --attempts 4
 ```
 
-Missions are a JSON list of `{ t, text }`; at second `t` an admin "director"
-shouts the text, a bare string, so every connected client hears it. The run
-records each one in `missions.ndjson` as `shouted`, along with anything an
-agent says back to the director as `heard`; every agent's log records what
-it received as `heard`.
 `meta.json` keeps each agent's team and the server's `teamId`.
 
 A shared team needs the server patched as well: the token route never

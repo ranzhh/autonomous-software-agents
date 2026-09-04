@@ -3,7 +3,7 @@
 # ///
 """Teams on every map, spawn order shuffled per attempt.
 
-    uv run bench/field.py --team pddl,pddl --team naive --missions bench/missions/example.json
+    uv run bench/field.py --team pddl,pddl --team naive
     uv run bench/field.py greedy naive deliberate        # each on a team of its own
     uv run bench/field.py --team pddl,llm --team pddl,pddl --maps 26c1_3 --attempts 4
 
@@ -28,7 +28,6 @@ parser = argparse.ArgumentParser(
 parser.add_argument("agents", nargs="*", help="bare agents, each a team of its own")
 parser.add_argument("--team", action="append", default=[], help="comma-separated agents sharing a team")
 parser.add_argument("--maps", default=",".join(MAPS), help="comma-separated names or files")
-parser.add_argument("--missions", help="JSON list of { t, text }, shouted to everyone t seconds in")
 parser.add_argument("--attempts", type=int, default=3)
 parser.add_argument("--campaign", help="results directory under bench/results; defaults to the lineup")
 parser.add_argument("--time", type=int, default=DURATION)
@@ -55,7 +54,6 @@ def orders(key: str) -> list[list[str]]:
     return [list(order) for order in distinct[: args.attempts]]
 
 
-extra = ["--missions", args.missions] if args.missions else []
 for m in args.maps.split(","):
     label = Path(m).name.removesuffix(".json")
     for k, order in enumerate(orders(m), start=1):
@@ -67,5 +65,4 @@ for m in args.maps.split(","):
             seed=args.seed,
             seeds=args.seeds,
             parallel=args.parallel,
-            extra=extra,
         )

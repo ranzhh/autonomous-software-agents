@@ -23,13 +23,12 @@ def bench(
     seed: int,
     seeds: int,
     parallel: int,
-    extra: list[str] = [],
 ) -> None:
     """One bench.ts invocation: the lineup on every map, seeds seed..seed+seeds-1."""
     cmd = [
         "npx", "tsx", "--env-file-if-exists=.env", "src/bench.ts", *agents,
         "--time", str(time), "--runs", str(seeds), "--seed", str(seed),
-        "--parallel", str(parallel), "--campaign", campaign, *extra,
+        "--parallel", str(parallel), "--campaign", campaign,
     ]
     for m in maps:
         cmd += ["--map", m]
