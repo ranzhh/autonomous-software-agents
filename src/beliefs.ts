@@ -40,9 +40,9 @@ export interface Beliefs {
   seen(sensing: IOSensing, at?: number): void;
   moved(me: IOAgent): void;
   changed(tile: IOTile): void;
-  /** A pickup ack: what was believed loose underfoot is carried, or was never there. */
+  /** Apply a pickup ack: mark underfoot parcels carried; on an empty ack forget them. */
   took(taken: Parcel[] | undefined): void;
-  /** A putdown ack: nothing is carried any more. */
+  /** Apply a putdown ack: forget everything carried. */
   gave(): void;
 }
 
@@ -51,7 +51,7 @@ export function decayedReward(
   config: IOConfig,
   now: number,
 ): number {
-  // An infinite tick divides the elapsed time into zero passed ticks.
+  // A decaying_event of "infinite" makes ms Infinity, so zero ticks have passed.
   const ms = msOf(config.GAME.parcels.decaying_event, config.CLOCK);
   return parcel.reward - Math.floor((now - parcel.seenAt) / ms);
 }
@@ -84,7 +84,7 @@ export function believe(world: World): Beliefs {
         seenAt: at,
       });
 
-    // A memory on a tile we can see right now, yet absent from the snapshot, is gone.
+    // Forget anything remembered on a visible tile that the snapshot does not report.
     const visible = new Set(sensing.positions.map((p) => key(p.x, p.y)));
     const reported = new Set<string>([
       ...sensing.parcels.map((p) => p.id),

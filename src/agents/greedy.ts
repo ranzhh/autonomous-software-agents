@@ -13,7 +13,7 @@ await run(async (game, { me, tiles, config }) => {
   });
 
   const pace = config.GAME.player.movement_duration;
-  // Weighing decay against the trip is deliberate's job; greedy just fills up.
+  // Decay reasoning belongs to deliberate; greedy only fills to capacity.
   const capacity = config.GAME.player.capacity;
   const deliveries = tiles.filter((tile) => tile.type === "2");
 
@@ -45,7 +45,7 @@ await run(async (game, { me, tiles, config }) => {
     return to.y > from.y ? "up" : "down";
   }
 
-  // Acks outrun sensing; the overlay stops re-picks against stale snapshots.
+  // Acks arrive before the next snapshot; these sets stop re-picks from stale ones.
   const picked = new Set<string>();
   const dropped = new Set<string>();
 
@@ -74,7 +74,7 @@ await run(async (game, { me, tiles, config }) => {
     }
     if (underfoot && carried.length < capacity) {
       const taken = await game.pickup();
-      // The ack names no ids; what was loose on this tile is what was taken.
+      // The ack carries no ids; assume everything loose on this tile was taken.
       if (taken && taken.length > 0)
         for (const p of loose)
           if (p.x === at.x && p.y === at.y) picked.add(p.id);

@@ -4,9 +4,9 @@ import { type Connection, connect, type World } from "./sdk.js";
 export type AgentRuntime = (game: Connection, world: World) => Promise<void>;
 
 /**
- * Everything around an agent that every agent shares: connect, await the world,
- * die on a lost connection or a signal, log the score as it changes (the
- * benchmark reads it).
+ * Shared agent scaffolding: connect, await the world, exit on a lost
+ * connection or a signal, log the score as it changes (the benchmark
+ * reads it).
  */
 export async function run(
   agent: AgentRuntime,

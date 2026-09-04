@@ -96,7 +96,7 @@ export interface Connection {
   me(): IOAgent | undefined;
   /** A tile changed type after the initial map. */
   onTile(listener: (tile: IOTile) => void): void;
-  /** Everything in range right now; what a snapshot omits is out of sight, not gone. */
+  /** Everything in range right now; an omitted parcel or agent may still exist out of range. */
   onSensing(listener: (sensing: IOSensing) => void): void;
   /** Triggered when the connection is permanently lost, but not by `disconnect`. */
   onLost(listener: () => void): void;
@@ -106,7 +106,7 @@ export interface Connection {
   putdown(ids?: string[]): Promise<Parcel[] | undefined>;
   /** `true` once the server has taken the message, `undefined` if it never answered. */
   say(toId: string, payload: unknown): Promise<boolean | undefined>;
-  /** The answer, or `undefined`: unanswered, too late and no such agent are one case. */
+  /** The answer; undefined for unanswered, late, or nonexistent recipients (indistinguishable). */
   ask(toId: string, payload: unknown): Promise<unknown>;
   /** Heard by every connected agent, opponents included. */
   shout(payload: unknown): Promise<boolean | undefined>;
@@ -261,7 +261,7 @@ export function connect(socket: GameSocket = DjsConnect()): Connection {
       }
     };
     // `attempt` reports failure as a value, so the queue never needs a rejection
-    // handler — which would otherwise mark an ignored caller's error as handled.
+    // handler; one would mark an ignored caller's error as handled.
     const settled = chain.then(attempt);
     chain = settled;
     return settled.then((result) => {

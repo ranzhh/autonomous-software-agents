@@ -111,7 +111,7 @@ export function grid(tiles: IOTile[]): Grid {
       }
   };
 
-  // Who can step onto each tile: one flat array, with a slice per tile.
+  // In-edges per tile: one flat array, with a slice per tile.
   const slices = new Int32Array(size + 1);
   eachExit((_, to) => {
     slices[to + 1] = read(slices, to + 1) + 1;
@@ -126,7 +126,7 @@ export function grid(tiles: IOTile[]): Grid {
     filled[to] = slot + 1;
   });
 
-  // Nothing rewrites a board under a grid: a changed tile builds a new one.
+  // Tile changes build a new grid; nothing rewrites this one in place.
   const fields = new Map<string, Route>();
 
   function route(...targets: Position[]): Route {
@@ -152,7 +152,7 @@ export function grid(tiles: IOTile[]): Grid {
   }
 
   function build(seeds: number[]): Route {
-    // Backwards, along the in-edges, so every tile learns its way to a target.
+    // Flood backwards along the in-edges to give every tile its distance to a target.
     const steps = new Int32Array(size).fill(NOWHERE);
     const queue = new Int32Array(size);
     let tail = 0;
