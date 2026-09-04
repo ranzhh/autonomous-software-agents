@@ -14,7 +14,7 @@ const NO_PLAN = [10, 11, 12];
 const TIMEOUT_MS = 30_000;
 
 /**
- * Run a local Fast Downward (`just planner` installs one). Returns the plan
+ * Run a local Fast Downward, found on PATH or at $FAST_DOWNWARD. Returns the plan
  * text, one `(action ...)` line per step; undefined when the planner finds
  * no plan.
  */
