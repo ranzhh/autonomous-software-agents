@@ -93,15 +93,17 @@ await run(async (game, world) => {
 
     if (queue.length === 0) {
       try {
+        const started = Date.now();
         const planned = await plan(intention, beliefs, board);
+        const ms = Date.now() - started;
         if (Array.isArray(planned)) {
           queue = planned;
           fromSolver = true;
-          log.info({ intention, steps: queue.length }, "planned");
+          log.info({ intention, steps: queue.length, ms }, "planned");
         } else if (planned === "no plan") {
           vetoed.add(named(intention));
           stale = true;
-          log.info({ intention }, "no plan");
+          log.info({ intention, ms }, "no plan");
           continue;
         } else if (intention.kind === "explore") {
           const step =
