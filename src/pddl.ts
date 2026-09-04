@@ -5,14 +5,14 @@ import type { Position } from "./sdk.js";
 import { solve } from "./solver.js";
 
 /**
- * Means-ends reasoning as planning: an intention becomes a whole action
- * sequence through a PDDL solver. Adjacency facts come from `grid.exits`,
- * so the one-way arrow tiles hold in the domain as they do on the board.
+ * Compile an intention and the current beliefs into a PDDL problem; parse
+ * the solver's plan back into game actions. Adjacency facts come from
+ * `grid.exits`, which already applies the arrow rule.
  */
 
-// A move onto a crate's tile is a push: the crate slides one tile onward,
-// so it must land on a slidable ('5') tile holding no other crate. `clear`
-// tracks crates only; other agents stay outside the domain.
+// Moving into a crate pushes it one tile in the move direction. The server
+// allows this only onto a '5' tile with no crate on it. `clear` means "no
+// crate here"; other agents are not modelled.
 const MOVE = (d: string) => `  (:action move-${d}
     :parameters (?from ?to - tile)
     :precondition (and (at ?from) (${d} ?from ?to) (clear ?to))
@@ -57,8 +57,8 @@ const parcel = (id: string): string => `p_${id}`;
 const crate = (id: string): string => `c_${id}`;
 
 /**
- * The problem for an intention, from what is believed right now; undefined
- * when the intention states no goal (explore) or its target is gone.
+ * Build the problem for an intention; undefined when there is no goal to
+ * state (explore, or the target is gone).
  */
 export function problem(
   intention: Intention,
@@ -110,7 +110,7 @@ export function problem(
   (:goal ${goal}))`;
 }
 
-// A push is executed as the move into the crate; the server slides it.
+// The server executes a push as a plain move into the crate.
 const NAMES: Record<string, Action> = {
   "move-up": "up",
   "move-down": "down",
@@ -124,7 +124,7 @@ const NAMES: Record<string, Action> = {
   putdown: "putdown",
 };
 
-/** Actions out of the solver's plan text, one per `(action ...)` line. */
+/** Parse the solver's plan text, one action per `(action ...)` line. */
 export function parse(plan: string): Action[] {
   const actions: Action[] = [];
   for (const line of plan.split("\n")) {
@@ -133,8 +133,8 @@ export function parse(plan: string): Action[] {
     if (name === undefined) continue;
     const action = NAMES[name];
     if (action === undefined) throw new Error(`unknown plan action: ${line}`);
-    // The game grabs and drops a whole tile at once; the domain goes parcel
-    // by parcel, so a run of pickups or putdowns collapses into one.
+    // pickup and putdown act on every parcel on the tile, but the domain
+    // plans them per parcel: collapse consecutive repeats into one.
     if (
       action === actions.at(-1) &&
       (action === "pickup" || action === "putdown")
@@ -145,10 +145,7 @@ export function parse(plan: string): Action[] {
   return actions;
 }
 
-/**
- * The full action sequence serving the intention; undefined when there is
- * nothing to plan for.
- */
+/** Plan the intention; undefined without a goal or without a plan. */
 export async function plan(
   intention: Intention,
   beliefs: Beliefs,

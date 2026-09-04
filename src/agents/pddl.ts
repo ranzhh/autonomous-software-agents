@@ -6,8 +6,9 @@ import { plan } from "../pddl.js";
 import { type Action, deliberate, drift, type Intention } from "../plans.js";
 import { key, sameTile } from "../position.js";
 
-// Deliberation is shared with the deliberating agent; only the means differ:
-// whole plans from the PDDL solver, executed until beliefs invalidate them.
+// Runs deliberate() like agents/deliberate.ts, but executes whole plans from
+// the PDDL solver. A plan is dropped when the intention changes or a move is
+// refused.
 await run(async (game, world) => {
   const beliefs = believe(world);
   let tiles = world.tiles;
@@ -38,7 +39,7 @@ await run(async (game, world) => {
     if (stale) {
       stale = false;
       const next = deliberate(beliefs, board, world.config, intention);
-      // A kept intention comes back as the held object itself.
+      // deliberate() returns the held object when it keeps the intention.
       if (next !== intention) {
         intention = next;
         queue = [];
@@ -48,7 +49,7 @@ await run(async (game, world) => {
     const me = beliefs.me();
     const at = { x: me.x ?? 0, y: me.y ?? 0 };
 
-    // Whatever the plan, a loose parcel underfoot is free value.
+    // Grab loose parcels underfoot first; it costs no steps.
     const loose = beliefs.parcels().filter((p) => !p.carriedBy);
     if (loose.some((p) => sameTile(p, at))) {
       const taken = await game.pickup();
@@ -91,8 +92,8 @@ await run(async (game, world) => {
       log.info({ delivered }, "delivered");
     } else {
       const landed = await game.move(action);
-      // A refusal means the step hit an agent, or a crate the beliefs had
-      // elsewhere; the rest of the plan starts from a tile we never reached.
+      // After a refusal the rest of the plan starts from a tile we never
+      // reached: drop it, sidestep, replan.
       if (landed === false) {
         stale = true;
         queue = [];

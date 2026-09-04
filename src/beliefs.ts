@@ -27,7 +27,7 @@ export interface AgentBelief {
   seenAt: number;
 }
 
-/** Where a crate was last seen; crates never decay and never respawn. */
+/** Last seen position; crates never decay or respawn. */
 export interface CrateBelief {
   id: string;
   x: number;
