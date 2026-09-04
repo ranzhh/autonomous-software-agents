@@ -226,3 +226,20 @@ describe("scouting", () => {
     });
   });
 });
+
+describe("the veto", () => {
+  test("skips vetoed options", () => {
+    const { beliefs, board } = setup(["2313"], { x: 1, y: 0 }, [{ x: 3 }]);
+    const held = { kind: "explore" } as const;
+    expect(deliberate(beliefs, board, config, held, 0).kind).toBe("scout");
+    const kind = deliberate(
+      beliefs,
+      board,
+      config,
+      held,
+      0,
+      (i) => i.kind === "scout",
+    ).kind;
+    expect(kind).toBe("fetch");
+  });
+});

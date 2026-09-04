@@ -145,17 +145,20 @@ export function parse(plan: string): Action[] {
   return actions;
 }
 
-/** Plan the intention; undefined without a goal or without a plan. */
+export type Planned = Action[] | "no goal" | "no plan";
+
+/** Plan the intention: actions, "no goal" to state, or "no plan" found. */
 export async function plan(
   intention: Intention,
   beliefs: Beliefs,
   grid: Grid,
   now = Date.now(),
-): Promise<Action[] | undefined> {
+): Promise<Planned> {
   const text = problem(intention, beliefs, grid, now);
-  if (text === undefined) return undefined;
+  if (text === undefined) return "no goal";
   const lines = await solve(DOMAIN, text);
-  if (lines === undefined) return undefined;
+  if (lines === undefined) return "no plan";
   const actions = parse(lines);
-  return actions.length > 0 ? actions : undefined;
+  // A solved, empty plan means the goal already holds.
+  return actions.length > 0 ? actions : "no goal";
 }

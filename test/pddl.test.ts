@@ -93,3 +93,32 @@ describe.skipIf(!available)("the domain, solved for real", () => {
     expect(actions).toEqual(["right", "right", "up", "pickup"]);
   });
 });
+
+describe("the plan outcomes", () => {
+  test("explore states no goal", async () => {
+    const tiles = tilesOf(["3"]);
+    const beliefs = believe({ me, tiles, config });
+    expect(await plan({ kind: "explore" }, beliefs, grid(tiles), 0)).toBe(
+      "no goal",
+    );
+  });
+});
+
+describe.skipIf(!available)("the solver on a wedged crate", () => {
+  test("answers no plan", { timeout: 30_000 }, async () => {
+    const tiles = tilesOf(["353"]);
+    const beliefs = believe({ me, tiles, config });
+    beliefs.seen(
+      {
+        positions: [],
+        agents: [],
+        parcels: [{ id: "p0", x: 2, y: 0, reward: 30 }],
+        crates: [{ id: "c0", x: 1, y: 0 }],
+      },
+      0,
+    );
+    expect(
+      await plan({ kind: "fetch", id: "p0" }, beliefs, grid(tiles), 0),
+    ).toBe("no plan");
+  });
+});

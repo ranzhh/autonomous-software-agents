@@ -13,6 +13,7 @@ await run(async (game, world) => {
   const beliefs = believe(world);
   let tiles = world.tiles;
   let board = grid(tiles);
+  let boards = 0;
   let stale = true;
   game.onSensing((sensing) => {
     beliefs.seen(sensing);
@@ -24,6 +25,7 @@ await run(async (game, world) => {
       tile,
     ];
     board = grid(tiles);
+    boards++;
     beliefs.changed(tile);
     stale = true;
   });
@@ -35,10 +37,39 @@ await run(async (game, world) => {
 
   let intention: Intention = { kind: "explore" };
   let queue: Action[] = [];
+  // Intentions the solver found no plan for, under the current crate layout.
+  const vetoed = new Set<string>();
+  const named = (i: Intention): string =>
+    i.kind === "fetch"
+      ? `fetch ${i.id}`
+      : i.kind === "scout"
+        ? `scout ${i.x},${i.y}`
+        : i.kind;
+  let layout = "";
   while (true) {
+    const crates = beliefs
+      .crates()
+      .map((c) => `${c.id}@${key(c.x, c.y)}`)
+      .sort()
+      .join(" ");
+    const seen = `${boards} ${crates}`;
+    if (seen !== layout) {
+      layout = seen;
+      if (vetoed.size > 0) {
+        vetoed.clear();
+        stale = true;
+      }
+    }
     if (stale) {
       stale = false;
-      const next = deliberate(beliefs, board, world.config, intention);
+      const next = deliberate(
+        beliefs,
+        board,
+        world.config,
+        intention,
+        Date.now(),
+        (i) => vetoed.has(named(i)),
+      );
       // deliberate() returns the held object when it keeps the intention.
       if (next !== intention) {
         intention = next;
@@ -62,9 +93,14 @@ await run(async (game, world) => {
     if (queue.length === 0) {
       try {
         const planned = await plan(intention, beliefs, board);
-        if (planned) {
+        if (Array.isArray(planned)) {
           queue = planned;
           log.info({ intention, steps: queue.length }, "planned");
+        } else if (planned === "no plan") {
+          vetoed.add(named(intention));
+          stale = true;
+          log.info({ intention }, "no plan");
+          continue;
         } else {
           const step =
             board.route(...board.spawners).step(at) ?? drift(board, at);
