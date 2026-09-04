@@ -153,6 +153,11 @@ await run(async (game, world) => {
         queue = [];
         const aside = drift(board, at) ?? step.do;
         if ((await game.move(aside)) === false) await pace();
+      } else if (landed === undefined) {
+        // A lost ack leaves the position unknown; the rest of the plan may
+        // start from the wrong tile. Drop it and replan from fresh beliefs.
+        stale = true;
+        queue = [];
       }
     }
     const now = game.me();
