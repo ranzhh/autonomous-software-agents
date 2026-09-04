@@ -31,6 +31,10 @@ export async function solve(
       await run(
         env.FAST_DOWNWARD,
         [
+          // The translator's output defaults to ./output.sas, so concurrent
+          // solves would read each other's problem. Keep it in this dir.
+          "--sas-file",
+          join(dir, "output.sas"),
           "--alias",
           "lama-first",
           "--plan-file",
