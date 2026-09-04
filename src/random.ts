@@ -12,9 +12,17 @@ function mulberry32(state: number): () => number {
   };
 }
 
-/** A random stream derived from SEED and `name`; plain Math.random when SEED is unset. */
-export function randomStream(name: string, seed = env.SEED): () => number {
+/**
+ * A random stream derived from SEED, the agent's NAME and `name`, so two
+ * agents of the same kind in one run draw differently. Plain Math.random
+ * when SEED is unset.
+ */
+export function randomStream(
+  name: string,
+  seed = env.SEED,
+  who = env.NAME,
+): () => number {
   if (seed === undefined || seed === "") return Math.random;
-  const digest = createHash("sha256").update(`${seed}:${name}`).digest();
+  const digest = createHash("sha256").update(`${seed}:${who}:${name}`).digest();
   return mulberry32(digest.readUInt32LE(0));
 }
