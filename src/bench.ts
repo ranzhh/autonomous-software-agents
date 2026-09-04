@@ -79,8 +79,13 @@ function series(meta: RunMeta): Map<string, Sample[]> {
   }
   return out;
 }
+
+// The observer samples once a second on a drifting interval, so the snapshot
+// for second n lands a few ms past n and the closing one just past `seconds`.
+// Half a period of slack takes each mark's own snapshot, never the next.
+const JITTER = 0.5;
 const at = (samples: Sample[], t: number): number =>
-  samples.filter((s) => s.t <= t).at(-1)?.score ?? 0;
+  samples.filter((s) => s.t <= t + JITTER).at(-1)?.score ?? 0;
 
 const table = (rows: (string | number)[][]): void => {
   const header = ["agent", ...marks.map((t) => `${t}s`)];

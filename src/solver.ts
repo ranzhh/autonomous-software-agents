@@ -14,7 +14,7 @@ const NO_PLAN = [10, 11, 12];
 const TIMEOUT_MS = 30_000;
 
 /**
- * Run a local Fast Downward (`just planner` installs one). Returns the plan
+ * Run a local Fast Downward, found on PATH or at $FAST_DOWNWARD. Returns the plan
  * text, one `(action ...)` line per step; undefined when the planner finds
  * no plan.
  */
@@ -31,6 +31,10 @@ export async function solve(
       await run(
         env.FAST_DOWNWARD,
         [
+          // The translator's output defaults to ./output.sas, so concurrent
+          // solves would read each other's problem. Keep it in this dir.
+          "--sas-file",
+          join(dir, "output.sas"),
           "--alias",
           "lama-first",
           "--plan-file",
