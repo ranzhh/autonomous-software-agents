@@ -1,0 +1,160 @@
+--- a/backend/src/deliveroo/Grid.js
++++ b/backend/src/deliveroo/Grid.js
+@@ -15,7 +15,10 @@
+ import RewardDecayingSystem from '../systems/RewardDecayingSystem.js';
+ import MapLoadingSystem from '../systems/MapLoadingSystem.js';
+ import { atNextTick } from '../reactivity/postponeAt.js';
++import { randomStream } from '../utils/random.js';
+ 
++const placementRandom = randomStream('agent-placement');
++
+ /** @typedef {import("@unitn-asa/deliveroo-js-sdk/types/IOTile.js").IOTileType} IOTileType */
+ 
+ 
+@@ -174,7 +177,7 @@
+             .filter( t => ! t.locked )
+         if ( tiles_unlocked.length > 0 ) {
+             // Pick a random tile among unlocked and walkable tiles
+-            const tile = tiles_unlocked.at( Math.floor( Math.random() * tiles_unlocked.length - 0.001 ) );
++            const tile = tiles_unlocked.at( Math.floor( placementRandom() * tiles_unlocked.length - 0.001 ) );
+             // Lock the tile
+             tile.lock();
+             // Set agent position
+--- a/backend/src/workers/ParcelSpawner.js
++++ b/backend/src/workers/ParcelSpawner.js
+@@ -1,8 +1,11 @@
+ import myClock from '../myClock.js';
+ import { config } from '../config/config.js';
+ import Grid from '../deliveroo/Grid.js';
++import { randomStream } from '../utils/random.js';
+ 
++const spawnRandom = randomStream('parcel-spawn');
+ 
++
+ /**
+  * 
+  * @param {Spawner} Spawner 
+@@ -31,7 +34,7 @@
+         }
+         let tiles_with_no_parcels = this.tilesWithNoParcels();
+         if ( tiles_with_no_parcels.length > 0 ) {
+-            let i = Math.floor( Math.random() * tiles_with_no_parcels.length );
++            let i = Math.floor( spawnRandom() * tiles_with_no_parcels.length );
+             let tile = tiles_with_no_parcels.at( i );
+             if (tile && tile.xy) {
+                 grid.createParcel( tile.xy );
+--- a/backend/src/systems/RewardDecayingSystem.js
++++ b/backend/src/systems/RewardDecayingSystem.js
+@@ -1,5 +1,8 @@
+ import { config } from '../config/config.js';
++import { randomStream } from '../utils/random.js';
+ 
++const rewardRandom = randomStream('parcel-reward');
++
+ /**
+  * RewardDecayingSystem provides parcel reward calculation and decay functions.
+  * Minimal system - no tracking, no lifecycle methods.
+@@ -16,7 +19,7 @@
+             return overrideReward;
+         }
+ 
+-        const random = Math.random();
++        const random = rewardRandom();
+         const variance = config.GAME.parcels.reward_variance;
+         const avg = config.GAME.parcels.reward_avg;
+ 
+--- a/backend/src/workers/RandomlyMovingNPC.js
++++ b/backend/src/workers/RandomlyMovingNPC.js
+@@ -1,6 +1,9 @@
+ import myClock from '../myClock.js';
+ import timersPromises from 'timers/promises'; // await timersPromises.setImmediate();
+ import NPC from './NPC.js';
++import { randomStream } from '../utils/random.js';
++
++const npcRandom = randomStream('npc-random');
+         
+ const actions = [ 'up', 'right', 'down', 'left' ];
+ const relPos = [ {x:0, y:1}, {x:1, y:0}, {x:0, y:-1}, {x:-1, y:0} ];
+@@ -48,7 +51,7 @@
+      */
+     async execute ( ) {
+     
+-        let index =  Math.floor( Math.random()*4 );
++        let index =  Math.floor( npcRandom()*4 );
+ 
+         while ( ! this.stopRequested ) {
+ 
+@@ -72,7 +75,7 @@
+                 // await myClock.once( 'frame' );
+ 
+             // straigth or turn left or right, not going back
+-            index += [0,1,3][ Math.floor(Math.random()*3) ];
++            index += [0,1,3][ Math.floor(npcRandom()*3) ];
+             // normalize 0-3
+             index %= 4;
+ 
+--- a/backend/src/workers/IntelligentParcelNPC.js
++++ b/backend/src/workers/IntelligentParcelNPC.js
+@@ -3,7 +3,10 @@
+ import NPC from './NPC.js';
+ import Xy from '../deliveroo/Xy.js';
+ import { config } from '../config/config.js';
++import { randomStream } from '../utils/random.js';
+ 
++const npcRandom = randomStream('npc-intelligent');
++
+ /** @typedef {import('@unitn-asa/deliveroo-js-sdk/types/IOGameOptions.js').IONpcsOptions} IONpcsOptions */
+ 
+ const actions = ['up', 'right', 'down', 'left'];
+@@ -490,7 +493,7 @@
+             // All tiles visited, reset and start over
+             this.visitedTiles.clear();
+             // Make a random move
+-            const index = Math.floor(Math.random() * 4);
++            const index = Math.floor(npcRandom() * 4);
+             await agent.controller[actions[index]]();
+         }
+     }
+--- /dev/null
++++ b/backend/src/utils/random.js
+@@ -0,0 +1,40 @@
++import { createHash } from 'node:crypto';
++
++/**
++ * Seeded random streams for the game's own draws (parcel rewards, spawn tiles,
++ * agent placement, NPC moves). Each consumer gets its own stream so the order in
++ * which consumers interleave does not shift the others' sequences.
++ *
++ * Unset SEED keeps Math.random everywhere: upstream behaviour is unchanged.
++ */
++
++const SEED = process.env.SEED;
++
++/**
++ * mulberry32: a small 32-bit generator with uniform output in [0, 1).
++ * @param {number} state
++ * @returns {() => number}
++ */
++function mulberry32(state) {
++    let a = state >>> 0;
++    return () => {
++        a = (a + 0x6D2B79F5) | 0;
++        let t = Math.imul(a ^ (a >>> 15), 1 | a);
++        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
++        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
++    };
++}
++
++/**
++ * A random stream named after its consumer, derived from SEED.
++ * @param {string} name
++ * @returns {() => number}
++ */
++export function randomStream(name) {
++    if (SEED === undefined || SEED === '')
++        return Math.random;
++    const digest = createHash('sha256').update(`${SEED}:${name}`).digest();
++    return mulberry32(digest.readUInt32LE(0));
++}
++
++export const seeded = SEED !== undefined && SEED !== '';
