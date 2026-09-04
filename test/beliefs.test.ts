@@ -16,7 +16,10 @@ const me: IOAgent = {
 const configWith = (decay: string): IOConfig =>
   ({
     CLOCK: 50,
-    GAME: { parcels: { decaying_event: decay } },
+    GAME: {
+      parcels: { decaying_event: decay },
+      player: { observation_distance: 5 },
+    },
   }) as unknown as IOConfig;
 
 const world = (decay = "1s") => ({
@@ -34,6 +37,12 @@ const sensing = (partial: Partial<IOSensing>): IOSensing => ({
 });
 
 const parcel = { id: "p1", x: 1, y: 1, reward: 34 };
+
+const row = Array.from({ length: 13 }, (_, x) => ({
+  x,
+  y: 0,
+  type: "3" as const,
+}));
 
 describe("parcels", () => {
   test("decays rewards to the asked time and drops the expired", () => {
@@ -73,6 +82,79 @@ describe("parcels", () => {
       0,
     );
     expect(beliefs.carrying(0).map((p) => p.id)).toEqual(["p2"]);
+  });
+});
+
+describe("what a teammate saw", () => {
+  const mate = { id: "mate", name: "other", x: 9, y: 9 };
+  const remote = { id: "p2", x: 5, y: 5, reward: 40 };
+  const report = (
+    at: number,
+    from = mate,
+    parcels: (typeof remote)[] = [],
+  ) => ({ at, from, parcels, agents: [] });
+
+  test("takes a parcel this agent has never seen", () => {
+    const beliefs = believe(world());
+    beliefs.heard(report(0, mate, [remote]));
+    expect(beliefs.parcels(0)).toEqual([{ ...remote, seenAt: 0 }]);
+  });
+
+  test("places the teammate without it ever being in sight", () => {
+    const beliefs = believe(world());
+    beliefs.heard(report(0));
+    expect(beliefs.agents()).toEqual([{ ...mate, seenAt: 0 }]);
+  });
+
+  test("does not overwrite a record this agent saw later", () => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ parcels: [{ ...parcel, reward: 34 }] }), 1_000);
+    beliefs.heard(report(0, mate, [{ ...parcel, reward: 9 }]));
+    expect(beliefs.parcels(1_000)[0]).toMatchObject({ reward: 34 });
+  });
+
+  test("retires a parcel absent from a tile the teammate could see", () => {
+    const beliefs = believe({ me, tiles: row, config: configWith("1s") });
+    beliefs.seen(sensing({ parcels: [{ ...parcel, x: 5, y: 0 }] }), 0);
+    beliefs.heard(report(100, { ...mate, x: 6, y: 0 }));
+    expect(beliefs.parcels(100)).toEqual([]);
+  });
+
+  test("leaves a tile out of the teammate's reach alone", () => {
+    const beliefs = believe({ me, tiles: row, config: configWith("1s") });
+    beliefs.seen(sensing({ parcels: [{ ...parcel, x: 0, y: 0 }] }), 0);
+    beliefs.heard(report(100, { ...mate, x: 12, y: 0 }));
+    expect(beliefs.parcels(100)).toHaveLength(1);
+  });
+
+  test("keeps a parcel it is carrying, whatever the teammate saw", () => {
+    const beliefs = believe({ me, tiles: row, config: configWith("1s") });
+    beliefs.seen(sensing({ parcels: [{ ...parcel, x: 0, y: 0 }] }), 0);
+    beliefs.took([{ xy: { x: 0, y: 0 }, reward: 30 }]);
+    beliefs.heard(report(100, { ...mate, x: 2, y: 0 }));
+    expect(beliefs.carrying(100)).toHaveLength(1);
+  });
+
+  test("runs no sweep of its own, so a distant sighting survives", () => {
+    const beliefs = believe(world());
+    beliefs.heard(report(0, mate, [remote]));
+    beliefs.seen(sensing({ positions: [{ x: 0, y: 0 }] }), 100);
+    expect(beliefs.parcels(100)).toHaveLength(1);
+  });
+
+  test("counts the teammate's reach as observed ground", () => {
+    const beliefs = believe({ me, tiles: row, config: configWith("1s") });
+    beliefs.heard(report(100, { ...mate, x: 6, y: 0 }));
+    expect(beliefs.observedAt(6, 0)).toBe(100);
+    expect(beliefs.observedAt(1, 0)).toBe(100);
+    expect(beliefs.observedAt(0, 0)).toBe(Number.NEGATIVE_INFINITY);
+  });
+
+  test("does not walk back a fresher look of our own", () => {
+    const beliefs = believe({ me, tiles: row, config: configWith("1s") });
+    beliefs.seen(sensing({ positions: [{ x: 6, y: 0 }] }), 300);
+    beliefs.heard(report(100, { ...mate, x: 6, y: 0 }));
+    expect(beliefs.observedAt(6, 0)).toBe(300);
   });
 });
 

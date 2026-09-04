@@ -6,6 +6,7 @@ import {
   type IOTile,
   msOf,
   type Parcel,
+  type Position,
   type World,
 } from "./sdk.js";
 
@@ -35,6 +36,14 @@ export interface CrateBelief {
   seenAt: number;
 }
 
+/** What a teammate sensed, from where and when. */
+export interface Report {
+  at: number;
+  from: Omit<AgentBelief, "seenAt">;
+  parcels: Omit<ParcelBelief, "seenAt">[];
+  agents: Omit<AgentBelief, "seenAt">[];
+}
+
 export interface Beliefs {
   me(): IOAgent;
   tileAt(x: number, y: number): IOTile | undefined;
@@ -47,6 +56,8 @@ export interface Beliefs {
   observedAt(x: number, y: number): number;
 
   seen(sensing: IOSensing, at?: number): void;
+  /** A teammate's frame, folded in where it is the newer word. */
+  heard(report: Report): void;
   moved(me: IOAgent): void;
   changed(tile: IOTile): void;
   /** Apply a pickup ack: mark underfoot parcels carried; on an empty ack forget them. */
@@ -75,43 +86,78 @@ export function believe(world: World): Beliefs {
   const observed = new Map<string, number>();
 
   function seen(sensing: IOSensing, at = Date.now()): void {
-    for (const p of sensing.positions) observed.set(key(p.x, p.y), at);
-    for (const p of sensing.parcels)
-      parcels.set(p.id, {
-        id: p.id,
-        x: p.x,
-        y: p.y,
-        carriedBy: p.carriedBy,
-        reward: p.reward,
-        seenAt: at,
-      });
-    for (const a of sensing.agents)
-      agents.set(a.id, {
+    merge(
+      at,
+      sensing.positions,
+      sensing.parcels,
+      sensing.agents.map((a) => ({
         id: a.id,
         name: a.name,
         x: a.x ?? 0,
         y: a.y ?? 0,
-        seenAt: at,
-      });
+      })),
+    );
     for (const c of sensing.crates)
       crates.set(c.id, { id: c.id, x: c.x, y: c.y, seenAt: at });
-
-    // Forget anything remembered on a visible tile that the snapshot does not report.
     const visible = new Set(sensing.positions.map((p) => key(p.x, p.y)));
-    const reported = new Set<string>([
-      ...sensing.parcels.map((p) => p.id),
-      ...sensing.agents.map((a) => a.id),
-      ...sensing.crates.map((c) => c.id),
-    ]);
-    for (const [id, p] of parcels)
-      if (!reported.has(id) && visible.has(key(p.x, p.y))) parcels.delete(id);
-    for (const [id, a] of agents)
-      if (!reported.has(id) && visible.has(key(a.x, a.y))) agents.delete(id);
+    const reported = new Set(sensing.crates.map((c) => c.id));
     for (const [id, c] of crates)
       if (!reported.has(id) && visible.has(key(c.x, c.y))) crates.delete(id);
+  }
+
+  function heard({ at, from, parcels, agents }: Report): void {
+    merge(at, viewFrom(from), parcels, [from, ...agents]);
+  }
+
+  function merge(
+    at: number,
+    visible: Position[],
+    sighted: Omit<ParcelBelief, "seenAt">[],
+    met: Omit<AgentBelief, "seenAt">[],
+  ): void {
+    const stale = (held: { seenAt: number } | undefined) =>
+      held === undefined || held.seenAt <= at;
+
+    for (const { x, y } of visible)
+      if (stale({ seenAt: observedAt(x, y) })) observed.set(key(x, y), at);
+    for (const p of sighted)
+      if (stale(parcels.get(p.id))) parcels.set(p.id, { ...p, seenAt: at });
+    for (const a of met)
+      if (a.id !== self.id && stale(agents.get(a.id)))
+        agents.set(a.id, { ...a, seenAt: at });
+
+    // A memory on a tile in view, absent from a frame no older than it, is gone.
+    const inView = new Set(visible.map((p) => key(p.x, p.y)));
+    const reported = new Set([...sighted, ...met].map((it) => it.id));
+    for (const [id, p] of parcels)
+      if (
+        !reported.has(id) &&
+        stale(p) &&
+        p.carriedBy !== self.id &&
+        inView.has(key(p.x, p.y))
+      )
+        parcels.delete(id);
+    for (const [id, a] of agents)
+      if (!reported.has(id) && stale(a) && inView.has(key(a.x, a.y)))
+        agents.delete(id);
 
     for (const [id, p] of parcels)
       if (decayedReward(p, config, at) <= 0) parcels.delete(id);
+  }
+
+  const observedAt = (x: number, y: number): number =>
+    observed.get(key(x, y)) ?? Number.NEGATIVE_INFINITY;
+
+  function viewFrom({ x, y }: Position): Position[] {
+    const reach = config.GAME.player.observation_distance;
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    const out: Position[] = [];
+    for (let dx = -reach; dx <= reach; dx++)
+      for (let dy = Math.abs(dx) - reach; dy <= reach - Math.abs(dx); dy++)
+        if (grid.has(key(cx + dx, cy + dy)))
+          out.push({ x: cx + dx, y: cy + dy });
+    return out;
   }
 
   const current = (now: number): ParcelBelief[] =>
@@ -132,12 +178,13 @@ export function believe(world: World): Beliefs {
     me: () => self,
     tileAt: (x, y) => grid.get(key(x, y)),
     parcels: (now = Date.now()) => current(now),
-    observedAt: (x, y) => observed.get(key(x, y)) ?? Number.NEGATIVE_INFINITY,
+    observedAt,
     agents: () => [...agents.values()],
     crates: () => [...crates.values()],
     carrying: (now = Date.now()) =>
       current(now).filter((p) => p.carriedBy === self.id),
     seen,
+    heard,
     moved: (me) => {
       self = me;
     },
