@@ -8,6 +8,6 @@ export const SUITE = [
   "crates_one_way",
   // One spawner, one delivery tile, 18 crates in between: pure crate pushing.
   "crates_maze",
-  // Maze with unlimited observation and one random NPC blocking tiles.
-  "chaotic_maze",
+  // Anti-clockwise loop: quadrants joined by one-way lanes, one intelligent NPC competing.
+  "26c1_4",
 ] as const;
