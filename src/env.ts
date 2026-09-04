@@ -6,6 +6,7 @@ export const env = cleanEnv(process.env, {
   TEAM: str({ testDefault: "test" }),
   TOKEN: str({ default: undefined }),
   FAST_DOWNWARD: str({ default: "fast-downward" }),
+  TEAM_SECRET: str({ default: undefined }),
   ADMIN_TOKEN: str({ default: undefined }),
   /** Seeds every random draw the agent makes; unset means Math.random. */
   SEED: str({ default: undefined }),
