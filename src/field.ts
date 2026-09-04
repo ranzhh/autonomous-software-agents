@@ -51,3 +51,27 @@ export function prospects(
   const scale = total > 0 ? Math.min(1, Math.max(0, unseen) / total) : 0;
   return raw.filter(mine).map((s) => ({ ...s, chance: s.chance * scale }));
 }
+
+export function odds(
+  beliefs: Beliefs,
+  grid: Grid,
+  config: IOConfig,
+  parcel: Position,
+  steps: number,
+  now: number,
+  mate?: string,
+): number {
+  const { observation_distance: reach, movement_duration: pace } =
+    config.GAME.player;
+  if (!Number.isFinite(steps) || steps <= 0) return 1;
+  const route = grid.route(parcel);
+  let nearest = steps;
+  for (const a of beliefs.agents()) {
+    if (a.id === mate) continue;
+    // Older than that, the rival may have walked out of sight of the parcel.
+    if (now - a.seenAt > reach * pace) continue;
+    if (manhattan(a, parcel) > reach) continue;
+    nearest = Math.min(nearest, route.distance(a));
+  }
+  return nearest / steps;
+}

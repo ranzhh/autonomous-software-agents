@@ -34,13 +34,16 @@ function setup(
   rows: string[],
   at: { x: number; y: number },
   parcels: Partial<IOParcel>[] = [],
+  agents: { id: string; x: number }[] = [],
 ): { beliefs: Beliefs; board: Grid } {
   const tiles = tilesOf(rows);
   const beliefs = believe({ me: me(at.x, at.y), tiles, config });
   beliefs.seen(
     {
       positions: [],
-      agents: [],
+      agents: agents.map(
+        (a) => ({ ...a, name: a.id, y: 0 }) as unknown as IOAgent,
+      ),
       crates: [],
       parcels: parcels.map((p, i) => ({
         id: `p${i}`,
@@ -93,6 +96,47 @@ describe("the naive plan", () => {
 
 describe("deliberation", () => {
   const corridor = ["2333333333"];
+
+  test("leaves a parcel a rival stands nearer to, and takes the far one", () => {
+    const contested = [
+      { x: 2, reward: 20 },
+      { x: 6, reward: 20 },
+    ];
+    const alone = setup(corridor, { x: 4, y: 0 }, contested);
+    expect(
+      deliberate(alone.beliefs, alone.board, config, { kind: "explore" }, 0),
+    ).toEqual({
+      kind: "fetch",
+      id: "p0",
+    });
+
+    const duel = setup(corridor, { x: 4, y: 0 }, contested, [
+      { id: "them", x: 1 },
+    ]);
+    expect(
+      deliberate(duel.beliefs, duel.board, config, { kind: "explore" }, 0),
+    ).toEqual({
+      kind: "fetch",
+      id: "p1",
+    });
+  });
+
+  // Losing the race loses that parcel, not the load already carried past it.
+  test("still walks a conceded parcel's way for what it carries", () => {
+    const { beliefs, board } = setup(
+      corridor,
+      { x: 9, y: 0 },
+      [
+        { x: 5, reward: 10 },
+        { carriedBy: "me", reward: 30 },
+      ],
+      [{ id: "them", x: 4 }],
+    );
+    expect(deliberate(beliefs, board, config, { kind: "explore" }, 0)).toEqual({
+      kind: "fetch",
+      id: "p0",
+    });
+  });
 
   test("fetches the nearer parcel when decay eats the richer one", () => {
     const { beliefs, board } = setup(corridor, { x: 3, y: 0 }, [

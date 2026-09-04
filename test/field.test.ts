@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { believe } from "../src/beliefs.js";
-import { prospects } from "../src/field.js";
+import { odds, prospects } from "../src/field.js";
 import { grid } from "../src/grid.js";
 import type { IOAgent, IOConfig, IOParcel, IOSensing } from "../src/sdk.js";
 import { tilesOf } from "./tiles.js";
@@ -123,5 +123,42 @@ describe("who else looks", () => {
     const beliefs = believe(world());
     const mine = prospects(beliefs, board, config, 0, (s) => s.x < 5);
     expect(mine.map((s) => s.x)).toEqual([3]);
+  });
+});
+
+describe("the chance of beating a rival to a parcel", () => {
+  const rival = (id: string, x: number): IOAgent =>
+    ({ id, name: id, x, y: 0 }) as unknown as IOAgent;
+
+  const saw = (id: string, x: number) => {
+    const beliefs = believe(world());
+    beliefs.seen(sensing({ agents: [rival(id, x)] }), 0);
+    return beliefs;
+  };
+
+  test("is certain where nobody else was seen", () => {
+    expect(odds(believe(world()), board, config, { x: 5, y: 0 }, 5, 100)).toBe(
+      1,
+    );
+  });
+
+  test("falls to the share of the race the rival leaves", () => {
+    expect(odds(saw("them", 6), board, config, { x: 5, y: 0 }, 5, 100)).toBe(
+      1 / 5,
+    );
+  });
+
+  test("ignores a rival that never saw the parcel", () => {
+    expect(odds(saw("them", 3), board, config, { x: 5, y: 0 }, 5, 100)).toBe(1);
+  });
+
+  test("ignores a sighting old enough for the rival to have left", () => {
+    expect(odds(saw("them", 6), board, config, { x: 5, y: 0 }, 5, 200)).toBe(1);
+  });
+
+  test("does not count the teammate as a rival", () => {
+    expect(
+      odds(saw("mate", 6), board, config, { x: 5, y: 0 }, 5, 100, "mate"),
+    ).toBe(1);
   });
 });
